@@ -52,8 +52,8 @@ export class ChainRegistry {
   }
 
   /** Rent za konto tokena przy pierwszym zakupie — istnieje tylko na Solanie. */
-  firstBuyRent(session: SessionRecord): number {
-    if (!this.isSolana(session.chain) || session.rentPaidSol > 0) return 0;
+  firstBuyRent(session: SessionRecord, firstBuyOnWallet: boolean): number {
+    if (!this.isSolana(session.chain) || !firstBuyOnWallet) return 0;
     return this.settings.get().trading.paperAtaRentSol;
   }
 

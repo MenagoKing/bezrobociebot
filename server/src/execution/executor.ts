@@ -17,6 +17,10 @@ export interface Fill {
 export interface ExecContext {
   session: SessionRecord;
   token: TokenInfo;
+  /** Portfel, z którego wykonywane jest zlecenie (0 = główny portfel bota). */
+  walletId: number;
+  /** Pierwszy zakup tokena z tego portfela w sesji (Solana: tworzy konto tokena → rent). */
+  firstBuyOnWallet: boolean;
 }
 
 export interface ExecHooks {

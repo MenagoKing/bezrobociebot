@@ -42,7 +42,7 @@ let state: State = {
   orders: [],
   callouts: [],
   stats: null,
-  wallet: { address: null, solBalance: null, tokenBalance: null, tokenMint: null, solUsd: 0, updatedAt: null, error: null, evm: null },
+  wallet: { address: null, solBalance: null, tokenBalance: null, tokenMint: null, solUsd: 0, updatedAt: null, error: null, evm: null, extra: [] },
   health: null,
   settings: null as unknown as State['settings'],
   recentErrors: [],

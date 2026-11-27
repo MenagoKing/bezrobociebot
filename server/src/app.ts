@@ -50,8 +50,8 @@ export function createApp(opts: { dbFile?: string } = {}) {
   const ledger = new Ledger(repo);
 
   const paper = new PaperExecutor(market, settings, chains);
-  const live = new JupiterExecutor(rpc, settings, () => account.getKeypair());
-  const evmLive = new EvmExecutor({ registry: chains, clients: evmClients, settings, getAccount: () => account.getEvmAccount(), lifiApiKey: () => account.lifiApiKey() });
+  const live = new JupiterExecutor(rpc, settings, (walletId) => account.getKeypair(walletId));
+  const evmLive = new EvmExecutor({ registry: chains, clients: evmClients, settings, getAccount: (walletId) => account.getEvmAccount(walletId), lifiApiKey: () => account.lifiApiKey() });
   const queue = new OrderQueue({
     repo,
     bus,
@@ -80,6 +80,7 @@ export function createApp(opts: { dbFile?: string } = {}) {
     stats,
     errors,
     getBalanceSol: (s) => coordinator?.balanceSol(s) ?? null,
+    getWallets: (s) => coordinator?.walletBalances(s) ?? [],
   });
   coordinator = new Coordinator({ bus, repo, settings, market, queue, risk, engine, stats, errors, wallet, account, rpc, chains, evmClients });
   const callouts = new CalloutService(repo, bus, settings, errors);

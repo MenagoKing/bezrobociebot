@@ -189,6 +189,8 @@ export interface TradingConfig {
   exitOnScenarios: Scenario[];
   minConfidence: number;
   maxOpenPositions: number;
+  /** Ile pozycji naraz może mieć jeden portfel (0 = bez limitu; 1 = każda pozycja na osobnym portfelu). */
+  maxPositionsPerWallet: number;
   buyCooldownSeconds: number;
   minLiquidityUsd: number;
   evaluationIntervalSeconds: number;
@@ -302,9 +304,13 @@ export interface SessionRecord {
   summary: SessionStats | null;
 }
 
+/** 0 = główny portfel bota danej sieci; > 0 = id dodatkowego portfela handlowego. */
+export const MAIN_WALLET_ID = 0;
+
 export interface Position {
   id: number;
   sessionId: number;
+  walletId: number;
   status: 'open' | 'closed';
   openedAt: number;
   closedAt: number | null;
@@ -353,6 +359,7 @@ export interface Trade {
 export interface Order {
   id: number;
   sessionId: number;
+  walletId: number;
   side: OrderSide;
   valueSol: number | null;
   positionId: number | null;
@@ -458,6 +465,17 @@ export interface AccountInfo {
   secrets: { name: string; isSet: boolean; updatedAt: number | null }[];
   /** Poprzednie portfele bota (klucze zachowane w archiwum po zmianie portfela). */
   archivedWallets: ArchivedWallet[];
+  /** Dodatkowe portfele, z których bot może otwierać pozycje (obok głównego). */
+  tradingWallets: TradingWallet[];
+}
+
+export interface TradingWallet {
+  id: number;
+  kind: WalletKind;
+  label: string;
+  address: string;
+  enabled: boolean;
+  createdAt: number;
 }
 
 export type WalletKind = 'solana' | 'evm';
@@ -470,7 +488,7 @@ export interface ArchivedWallet {
 }
 
 /** Dane profilu bez sekretów i archiwum (zapisywane w tabeli account). */
-export type AccountProfile = Omit<AccountInfo, 'secrets' | 'archivedWallets'>;
+export type AccountProfile = Omit<AccountInfo, 'secrets' | 'archivedWallets' | 'tradingWallets'>;
 
 export interface WalletInfo {
   address: string | null;
@@ -481,6 +499,20 @@ export interface WalletInfo {
   updatedAt: number | null;
   error: string | null;
   evm: EvmWalletInfo | null;
+  /** Salda dodatkowych portfeli handlowych (Solana oraz EVM na monitorowanej sieci). */
+  extra: ExtraWalletInfo[];
+}
+
+export interface ExtraWalletInfo {
+  id: number;
+  kind: WalletKind;
+  label: string;
+  address: string;
+  chain: string;
+  nativeSymbol: string;
+  nativeBalance: number | null;
+  tokenBalance: number | null;
+  error: string | null;
 }
 
 export interface EvmWalletInfo {

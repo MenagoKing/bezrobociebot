@@ -320,6 +320,40 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
     return account.deleteArchived(parse(idParam, req.params).id, password, req.ip);
   });
+  // dodatkowe portfele handlowe — zmiany zbioru portfeli tylko poza sesją live (kapitał sesji = suma ich sald)
+  app.post('/api/account/trading-wallets', async (req) => {
+    const input = parse(
+      z.object({
+        kind: z.enum(['solana', 'evm']),
+        source: z.enum(['generate', 'import']),
+        privateKey: z.string().max(4096).optional(),
+        label: z.string().max(40).optional(),
+      }),
+      req.body,
+    );
+    assertNoLiveSession();
+    const result = account.addTradingWallet(input);
+    await wallet.refresh();
+    return result;
+  });
+  app.post('/api/account/trading-wallets/:id', async (req) => {
+    const patch = parse(z.object({ label: z.string().max(40).optional(), enabled: z.boolean().optional() }), req.body);
+    if (patch.enabled !== undefined) assertNoLiveSession();
+    const updated = account.updateTradingWallet(parse(idParam, req.params).id, patch);
+    void wallet.refresh();
+    return updated;
+  });
+  app.post('/api/account/trading-wallets/:id/reveal', async (req) => {
+    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
+    return { value: await account.revealTradingWallet(parse(idParam, req.params).id, password, req.ip) };
+  });
+  app.post('/api/account/trading-wallets/:id/delete', async (req) => {
+    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
+    assertNoLiveSession();
+    const updated = await account.removeTradingWallet(parse(idParam, req.params).id, password, req.ip);
+    void wallet.refresh();
+    return updated;
+  });
   app.post('/api/account/secrets/:name/reveal', async (req: FastifyRequest) => {
     const { name } = req.params as { name: string };
     const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
