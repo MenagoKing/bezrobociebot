@@ -1,6 +1,6 @@
 import type { BotSnapshot, BotState, Order, SessionRecord } from '../../../shared/types.ts';
 import type { SettingsService } from '../config/settingsService.ts';
-import type { RiskManager } from '../coordinator/riskManager.ts';
+import type { RiskManager, WalletBalance } from '../coordinator/riskManager.ts';
 import type { ErrorMonitor } from '../core/errorMonitor.ts';
 import type { EventBus } from '../core/eventBus.ts';
 import { logger } from '../core/logger.ts';
@@ -22,6 +22,8 @@ export interface EngineDeps {
   stats: StatsService;
   errors: ErrorMonitor;
   getBalanceSol: (session: SessionRecord) => number | null;
+  /** Portfele, z których można kupić w tej sesji, z saldami. */
+  getWallets: (session: SessionRecord) => WalletBalance[];
 }
 
 /**
@@ -255,11 +257,20 @@ export class BotEngine {
     const decision = evaluateEntry({ analysis, snapshot, openPositions: open, lastBuyAt: this.lastBuyAt, now, cfg: cfg.trading });
     if (decision.action === 'skip') return this.setSignal(decision.reason);
 
-    const check = risk.checkBuy({ session, usd: decision.usd, solUsd: snapshot.solUsd, stats: st, openPositions: open, balanceSol, manual: false });
+    const check = risk.checkBuyOnWallets({
+      session,
+      usd: decision.usd,
+      solUsd: snapshot.solUsd,
+      stats: st,
+      openPositions: open,
+      wallets: this.d.getWallets(session),
+      manual: false,
+    });
     if (!check.ok) return this.setSignal(`ryzyko: ${check.reason}`);
 
     this.lastBuyAt = now;
-    queue.enqueue({ sessionId: sid, side: 'buy', valueSol: check.valueSol, reason: decision.reason });
-    this.setSignal(`sygnał kupna ${decision.usd.toFixed(2)} USD (${analysis?.scenario})`);
+    queue.enqueue({ sessionId: sid, side: 'buy', walletId: check.walletId, valueSol: check.valueSol, reason: decision.reason });
+    const where = check.walletId ? ` z portfela #${check.walletId}` : '';
+    this.setSignal(`sygnał kupna ${decision.usd.toFixed(2)} USD${where} (${analysis?.scenario})`);
   }
 }

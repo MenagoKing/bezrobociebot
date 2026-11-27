@@ -21,7 +21,7 @@ const analysis = (scenario: MarketAnalysis['scenario'], confidence = 0.8): Marke
 const snapshot: MarketSnapshot = { ts: now, priceUsd: 0.0001, priceSol: 0.0001 / 150, solUsd: 150, liquidityUsd: 50_000, volume5mUsd: 100, volume1hUsd: 1000, volume24hUsd: 10_000, buys5m: 5, sells5m: 3, priceChange5mPct: 0, priceChange1hPct: 0 };
 
 const position = (over: Partial<Position> = {}): Position => ({
-  id: 1, sessionId: 1, status: 'open', openedAt: now - 120_000, closedAt: null, amount: 1000, decimals: 6,
+  id: 1, sessionId: 1, walletId: 0, status: 'open', openedAt: now - 120_000, closedAt: null, amount: 1000, decimals: 6,
   entryPriceSol: 0.001, entryPriceUsd: 0.15, costSol: 1, peakPriceSol: 0.001, exitPriceSol: null, exitPriceUsd: null,
   proceedsSol: null, realizedPnlSol: null, realizedPnlUsd: null, feesSol: 0, exitReason: null, ...over,
 });

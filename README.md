@@ -99,6 +99,16 @@ Zanim użyjesz prawdziwych pieniędzy:
 - Publiczny RPC (`api.mainnet-beta.solana.com`) ma limity — do live użyj prywatnego RPC (URL zapisujesz jako sekret w zakładce Konta).
 - Wynik live liczony jest od salda SOL portfela na starcie sesji — wpłaty/wypłaty w trakcie sesji zaburzą PNL.
 
+### Kilka portfeli (jedna pozycja na portfel)
+
+**Konto i portfel → Portfele handlowe → Dodaj portfel** (nowy albo import klucza) dodaje portfele, z których bot otwiera
+pozycje obok portfela głównego. W **Trading Config → Maks. pozycji na jeden portfel** ustaw `1`, a „Maks. liczba otwartych
+pozycji” na liczbę portfeli — wtedy każda pozycja idzie z osobnego portfela (np. 2 portfele = 2 pozycje naraz, każda na innym).
+Bot wybiera najmniej zajęty portfel z wystarczającym saldem; sprzedaż zawsze idzie z portfela, który pozycję otworzył.
+Kapitał sesji live to suma sald wszystkich portfeli danej sieci. Dodawanie, włączanie/wyłączanie i usuwanie portfeli
+jest możliwe tylko poza sesją live; usunięty portfel trafia do archiwum (klucz zostaje). W trybie paper limit działa tak
+samo (do testów), ale saldo symulacyjne jest wspólne.
+
 ## Wdrożenie na serwer (24/7)
 
 > **Panel nie ma hasła**, więc odpowiada wyłącznie na połączenia z tego samego komputera (127.0.0.1 / localhost).

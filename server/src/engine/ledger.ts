@@ -24,6 +24,7 @@ export class Ledger {
       const now = Date.now();
       const position = this.repo.createPosition({
         sessionId: session.id,
+        walletId: order.walletId,
         openedAt: now,
         amount: fill.amount,
         decimals: fill.decimals,

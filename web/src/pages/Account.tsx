@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type AccountInfo, type WalletKind } from '../../../shared/types.ts';
+import { type AccountInfo, type TradingWallet, type WalletKind } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { ActionButton, Badge, Modal, PageHeader, PageIcons, Panel } from '../components/ui.tsx';
 import { fmtAgo, fmtDateTime, fmtSol } from '../format.ts';
@@ -578,6 +578,293 @@ function BotsTable({ account, onChange, onRefresh }: { account: AccountInfo; onC
   );
 }
 
+/**
+ * Dodatkowe portfele handlowe: bot otwiera pozycje z aktywnego bota i z włączonych portfeli poniżej.
+ * Limit „Maks. pozycji na jeden portfel” (Ustawienia → Strategia) decyduje, ile pozycji naraz trafia na jeden portfel.
+ */
+function TradingWalletsTable({ account, onChange }: { account: AccountInfo; onChange: (a: AccountInfo) => void }) {
+  const wallet = useStore((st) => st.wallet);
+  const perWallet = useStore((st) => st.settings.trading.maxPositionsPerWallet);
+  const maxOpen = useStore((st) => st.settings.trading.maxOpenPositions);
+  const liveActive = useStore((st) => st.session?.mode === 'live');
+  const [sources, setSources] = useState(loadSources);
+  const [adding, setAdding] = useState(false);
+  const [source, setSource] = useState<'generate' | 'import'>('generate');
+  const [origin, setOrigin] = useState<BotSourceId | null>(null);
+  const [label, setLabel] = useState('');
+  const [key, setKey] = useState('');
+  const [target, setTarget] = useState<{ wallet: TradingWallet; action: 'reveal' | 'delete' | 'rename' } | null>(null);
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [rename, setRename] = useState('');
+  const list = account.tradingWallets.filter((w) => w.kind === 'solana');
+  const lockTitle = liveActive ? 'Najpierw zakończ sesję live' : undefined;
+
+  const closeAdd = () => {
+    setAdding(false);
+    setLabel('');
+    setKey('');
+    setOrigin(null);
+    setSource('generate');
+  };
+  const close = () => {
+    setTarget(null);
+    setRevealed(null);
+  };
+
+  const add = async () => {
+    const r = await api.post<{ account: AccountInfo; wallet: TradingWallet }>('/api/account/trading-wallets', {
+      kind: 'solana',
+      source,
+      label: label.trim() || `Portfel ${list.length + 2}`,
+      ...(source === 'import' ? { privateKey: key } : {}),
+    });
+    saveSource(r.wallet.address, source === 'import' ? origin : 'soldesk');
+    setSources(loadSources());
+    onChange(r.account);
+    closeAdd();
+    toast(`Dodano portfel ${shortAddr(r.wallet.address)} — zasil go SOL, zanim bot z niego kupi`, 'ok', 9000);
+  };
+
+  return (
+    <Panel
+      title={`Portfele handlowe (${list.length})`}
+      flush
+      actions={
+        <button className="btn btn-primary" disabled={liveActive} title={lockTitle ?? 'Dodaj portfel, z którego bot może równolegle otwierać pozycje'} onClick={() => setAdding(true)}>
+          + Dodaj portfel
+        </button>
+      }
+    >
+      <div className="bots-note small muted" style={{ borderTop: 0, borderBottom: '1px solid var(--line)' }}>
+        Bot otwiera pozycje z <b>aktywnego bota</b> i z <b>włączonych portfeli</b> poniżej; sprzedaż zawsze idzie z portfela, który pozycję otworzył. Teraz:{' '}
+        {perWallet === 0 ? 'bez limitu pozycji na portfel' : `maks. ${perWallet} poz. na portfel`} · maks. {maxOpen} otwartych pozycji łącznie (Ustawienia → Strategia).
+      </div>
+      {list.length ? (
+        <div className="table-wrap" style={{ maxHeight: 'none' }}>
+          <table className="bots-table">
+            <thead>
+              <tr>
+                <th>Portfel</th>
+                <th>Źródło</th>
+                <th>Adres</th>
+                <th className="num">Saldo</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((w) => {
+                const info = wallet.extra.find((x) => x.id === w.id);
+                const src = sources[w.address.toLowerCase()];
+                return (
+                  <tr key={w.id} className={w.enabled ? 'bot-active' : ''}>
+                    <td>
+                      <div className="bot-name">
+                        <span className="bot-avatar">
+                          {(w.label || 'P').slice(0, 1).toUpperCase()}
+                          {src && (
+                            <span className="bot-avatar-src">
+                              <SourceIcon id={src} size={16} />
+                            </span>
+                          )}
+                        </span>
+                        <span>
+                          <b>{w.label || `Portfel #${w.id}`}</b>
+                          <button className="link-edit" title="Zmień nazwę" onClick={() => (setRename(w.label), setTarget({ wallet: w, action: 'rename' }))}>
+                            ✎
+                          </button>
+                          <div className="small faint">od {fmtDateTime(w.createdAt)}</div>
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      {sourceInfo(src) ? (
+                        <span className="src-cell">
+                          <SourceIcon id={src} size={20} />
+                          {sourceInfo(src)!.label}
+                        </span>
+                      ) : (
+                        <span className="faint">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                        <ExtLink className="mono" href={addressUrl('solana', w.address, 'address')} title={w.address}>
+                          {shortAddr(w.address)}
+                        </ExtLink>
+                        <button className="btn btn-ghost btn-sm" title="Kopiuj adres" onClick={() => void navigator.clipboard.writeText(w.address).then(() => toast('Skopiowano adres', 'ok'))}>
+                          Kopiuj
+                        </button>
+                      </div>
+                      {info?.error && <div className="err-box small">{info.error}</div>}
+                    </td>
+                    <td className="num">{fmtSol(info?.nativeBalance ?? null, false, 'SOL')}</td>
+                    <td>
+                      {w.enabled ? (
+                        <Badge tone="green" dot>
+                          W użyciu
+                        </Badge>
+                      ) : (
+                        <Badge tone="gray">Wyłączony</Badge>
+                      )}
+                    </td>
+                    <td className="right">
+                      <div className="row" style={{ gap: 6, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                        <ActionButton
+                          className="btn-sm"
+                          disabled={liveActive}
+                          title={lockTitle}
+                          onClick={async () => onChange(await api.post<AccountInfo>(`/api/account/trading-wallets/${w.id}`, { enabled: !w.enabled }))}
+                        >
+                          {w.enabled ? 'Wyłącz' : 'Włącz'}
+                        </ActionButton>
+                        <button className="btn btn-sm" onClick={() => setTarget({ wallet: w, action: 'reveal' })}>
+                          Klucz
+                        </button>
+                        <button className="btn btn-sm btn-ghost" disabled={liveActive} title={lockTitle} onClick={() => setTarget({ wallet: w, action: 'delete' })}>
+                          Usuń
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="bots-empty" style={{ padding: '22px 16px' }}>
+          <div className="muted">Brak dodatkowych portfeli — bot handluje tylko z aktywnego bota. Dodaj portfel, jeśli chcesz otwierać kilka pozycji z różnych portfeli naraz.</div>
+        </div>
+      )}
+
+      {adding && (
+        <Modal
+          title="Dodaj portfel handlowy"
+          onClose={closeAdd}
+          footer={
+            <>
+              <button className="btn" onClick={closeAdd}>
+                Anuluj
+              </button>
+              <ActionButton className="btn-primary" disabled={source === 'import' && (!key.trim() || !origin)} onClick={add}>
+                + Dodaj portfel
+              </ActionButton>
+            </>
+          }
+        >
+          <label className="field">
+            <span className="field-label">Nazwa (opcjonalnie)</span>
+            <input autoFocus placeholder={`np. Portfel ${list.length + 2}`} value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} />
+          </label>
+          <div className="col" style={{ gap: 6 }}>
+            <span className="field-label">Portfel</span>
+            <div className="seg">
+              <button className={source === 'generate' ? 'on' : ''} onClick={() => setSource('generate')}>
+                Utwórz nowy
+              </button>
+              <button className={source === 'import' ? 'on' : ''} onClick={() => setSource('import')}>
+                Mam własny klucz
+              </button>
+            </div>
+          </div>
+          {source === 'generate' ? (
+            <div className="small muted">Aplikacja utworzy nowy portfel Solana i zaszyfruje jego klucz. Przelej na niego SOL, zanim bot z niego kupi.</div>
+          ) : (
+            <>
+              <div className="col" style={{ gap: 6 }}>
+                <span className="field-label">Skąd jest ten portfel?</span>
+                <SourcePicker value={origin} onChange={setOrigin} />
+              </div>
+              <textarea
+                className="mono"
+                rows={3}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Klucz PRYWATNY Solana (87–88 znaków base58 albo tablica JSON) — nie adres portfela"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+              />
+              <div className="small faint">Na pump.fun: ustawienia konta → eksport klucza prywatnego. Adres portfela (32–44 znaki) nie zadziała. Nigdy nie wklejaj frazy odzyskiwania.</div>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {target?.action === 'rename' && (
+        <Modal
+          title="Nazwa portfela"
+          onClose={close}
+          footer={
+            <>
+              <button className="btn" onClick={close}>
+                Anuluj
+              </button>
+              <ActionButton
+                className="btn-primary"
+                onClick={async () => {
+                  onChange(await api.post<AccountInfo>(`/api/account/trading-wallets/${target.wallet.id}`, { label: rename }));
+                  close();
+                }}
+              >
+                Zapisz
+              </ActionButton>
+            </>
+          }
+        >
+          <input autoFocus value={rename} maxLength={40} placeholder="np. Portfel 2" onChange={(e) => setRename(e.target.value)} />
+        </Modal>
+      )}
+
+      {target?.action === 'reveal' && (
+        <Modal title={`Klucz portfela ${shortAddr(target.wallet.address)}`} onClose={close}>
+          {revealed === null ? (
+            <>
+              <div className="small muted">Klucz przyda się do importu w Phantomie (kopia zapasowa, wypłata środków). Upewnij się, że nikt nie patrzy na ekran.</div>
+              <ActionButton className="btn-primary" onClick={async () => setRevealed((await api.post<{ value: string }>(`/api/account/trading-wallets/${target.wallet.id}/reveal`)).value)}>
+                Pokaż klucz
+              </ActionButton>
+            </>
+          ) : (
+            <>
+              <textarea className="mono" rows={3} readOnly value={revealed} />
+              <div className="warn-text small">Nie udostępniaj tego klucza nikomu. Zamknij okno po użyciu.</div>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {target?.action === 'delete' && (
+        <Modal
+          title={`Usuń portfel ${target.wallet.label || shortAddr(target.wallet.address)}`}
+          onClose={close}
+          footer={
+            <>
+              <button className="btn" onClick={close}>
+                Anuluj
+              </button>
+              <ActionButton
+                className="btn-red"
+                onClick={async () => {
+                  onChange(await api.post<AccountInfo>(`/api/account/trading-wallets/${target.wallet.id}/delete`));
+                  close();
+                }}
+                success="Portfel przeniesiony do archiwum"
+              >
+                Usuń z listy
+              </ActionButton>
+            </>
+          }
+        >
+          <div className="info-box small">
+            Portfel zniknie z listy handlowej, a jego klucz trafi do archiwum (dalej zaszyfrowany) — znajdziesz go wśród botów w rezerwie. Portfela z otwartą pozycją nie da się usunąć.
+          </div>
+        </Modal>
+      )}
+    </Panel>
+  );
+}
+
 export function Account() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   useEffect(() => {
@@ -598,6 +885,7 @@ export function Account() {
         }}
       />
 
+      <TradingWalletsTable account={account} onChange={setAccount} />
     </div>
   );
 }

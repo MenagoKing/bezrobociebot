@@ -102,6 +102,9 @@ Przejścia są zdefiniowane w tabeli (`server/src/engine/stateMachine.ts`); nied
 - **Cykl sesji:** walidacja → rozpoznanie tokena → zapis sesji z migawką konfiguracji → start feedu → start silnika.
 - **Ryzyko (przed każdym zakupem):** min/max kwota, saldo minus rezerwa SOL, maks. kapitał w pozycjach (USD i % kapitału),
   maks. liczba pozycji, cooldown, limit transakcji na sesję/godzinę, min. płynność.
+- **Wiele portfeli:** pozycje i zlecenia mają `wallet_id` (0 = główny portfel, >0 = `trading_wallets`). Przed zakupem
+  `RiskManager.checkBuyOnWallets` wybiera portfel z wolnym miejscem w limicie `maxPositionsPerWallet` (otwarte pozycje +
+  kupna w kolejce), najmniej zajęty najpierw, i sprawdza saldo tego portfela. Sprzedaż podpisuje klucz portfela pozycji.
 - **Ryzyko (ciągłe):** limit straty sesji (USD/%), limit kosztów → `pause` lub `stop + likwidacja` (konfigurowalne).
 - **Awaryjne zatrzymanie:** natychmiast blokuje nowe zakupy, anuluje kolejkę, opcjonalnie sprzedaje wszystko z pominięciem min. czasu trzymania.
 - **Odzyskiwanie:** po restarcie aktywna sesja wraca jako `paused`; zlecenia przerwane w trakcie są uzgadniane (live: status podpisu w RPC).

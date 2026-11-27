@@ -1,4 +1,4 @@
-import type { DataSource, ExecutionMode, Order, SessionRecord, SessionStats, SessionStatus } from '../../../shared/types.ts';
+import type { DataSource, ExecutionMode, Order, SessionRecord, SessionStats, SessionStatus, WalletKind } from '../../../shared/types.ts';
 import type { SettingsService } from '../config/settingsService.ts';
 import { env } from '../config/env.ts';
 import type { ErrorMonitor } from '../core/errorMonitor.ts';
@@ -13,10 +13,10 @@ import type { SolanaRpc } from '../solana/rpc.ts';
 import type { EvmClients } from '../evm/evmClients.ts';
 import type { ChainRegistry } from '../chains/chainRegistry.ts';
 import type { Hex } from 'viem';
-import type { AccountService } from '../services/accountService.ts';
+import type { AccountService, WalletSlot } from '../services/accountService.ts';
 import type { StatsService } from '../services/statsService.ts';
 import type { WalletMonitor } from '../services/walletMonitor.ts';
-import type { RiskManager } from './riskManager.ts';
+import type { RiskManager, WalletBalance } from './riskManager.ts';
 
 export const LIVE_CONFIRM_PHRASE = 'HANDEL LIVE';
 
@@ -92,10 +92,32 @@ export class Coordinator {
     return s;
   }
 
-  /** Saldo SOL dostępne dla bota: symulacyjne albo z portfela (live). */
+  private walletKind(session: SessionRecord): WalletKind {
+    return this.d.chains.isSolana(session.chain) ? 'solana' : 'evm';
+  }
+
+  /** Portfele, z których bot handluje w sesji: live — z kluczem; paper — symulowane (wspólne saldo). */
+  walletSlots(session: SessionRecord): WalletSlot[] {
+    return this.d.account.walletSlots(this.walletKind(session), { requireKey: session.mode === 'live' });
+  }
+
+  /** Portfele do zakupu z saldami: paper — wspólne saldo symulacyjne, live — saldo każdego portfela. */
+  walletBalances(session: SessionRecord): WalletBalance[] {
+    return this.walletSlots(session).map((w) => ({
+      id: w.id,
+      balanceSol: session.mode === 'paper' ? session.paperBalanceSol : this.d.wallet.nativeBalance(session.chain, w.id),
+    }));
+  }
+
+  /** Saldo dostępne dla bota: symulacyjne albo suma sald portfeli handlowych (live; null = któreś nieznane). */
   balanceSol(session: SessionRecord): number | null {
     if (session.mode === 'paper') return session.paperBalanceSol;
-    return this.d.wallet.nativeBalance(session.chain);
+    let total = 0;
+    for (const w of this.walletBalances(session)) {
+      if (w.balanceSol === null) return null;
+      total += w.balanceSol;
+    }
+    return total;
   }
 
   currentStats(): SessionStats | null {
@@ -165,13 +187,18 @@ export class Coordinator {
 
     const token = await market.resolve(input.tokenAddress, input.dataSource);
     const isSolana = this.d.chains.isSolana(token.chain);
+    const kind: WalletKind = isSolana ? 'solana' : 'evm';
+    const liveSlots = input.mode === 'live' ? account.walletSlots(kind, { requireKey: true }) : [];
     if (input.mode === 'live') {
-      if (isSolana) {
-        if (account.getKeypair().address !== account.get().walletAddress) throw new UserError('Klucz prywatny nie pasuje do adresu portfela Solana');
-      } else {
-        this.d.chains.evm(token.chain); // sieć musi być włączona
-        const evmAddress = account.get().evmWalletAddress;
-        if (account.getEvmAccount().address.toLowerCase() !== evmAddress.toLowerCase()) throw new UserError('Klucz EVM nie pasuje do adresu portfela EVM');
+      if (!isSolana) this.d.chains.evm(token.chain); // sieć musi być włączona
+      if (liveSlots.length === 0) {
+        throw new UserError(`Brak portfela ${isSolana ? 'Solana' : 'EVM'} z kluczem — dodaj go w zakładce Konto i portfel`);
+      }
+      for (const w of liveSlots) {
+        const keyAddress = isSolana ? account.getKeypair(w.id).address : account.getEvmAccount(w.id).address;
+        if (keyAddress.toLowerCase() !== w.address.toLowerCase()) {
+          throw new UserError(`Klucz nie pasuje do adresu portfela ${w.label} (${w.address})`);
+        }
       }
     }
     const solUsd = token.priceSol > 0 ? token.priceUsd / token.priceSol : await market.getNativeUsd(token.chain);
@@ -181,11 +208,18 @@ export class Coordinator {
       if (!(usd > 0)) throw new UserError('Kapitał początkowy musi być dodatni');
       capitalSol = usd / solUsd;
     } else {
-      capitalSol = isSolana
-        ? (await rpc.getBalanceLamports(account.get().walletAddress)) / 1e9
-        : Number(await this.d.evmClients.public(token.chain).getBalance({ address: account.get().evmWalletAddress as Hex })) / 1e18;
-      if (capitalSol <= this.d.chains.gasReserve(token.chain)) {
-        throw new UserError(`Za mało ${token.nativeSymbol} w portfelu (poniżej rezerwy na opłaty)`);
+      // kapitał sesji = suma sald wszystkich portfeli, z których bot będzie handlował
+      const balances = await Promise.all(
+        liveSlots.map(async (w) =>
+          isSolana
+            ? (await rpc.getBalanceLamports(w.address)) / 1e9
+            : Number(await this.d.evmClients.public(token.chain).getBalance({ address: w.address as Hex })) / 1e18,
+        ),
+      );
+      capitalSol = balances.reduce((a, b) => a + b, 0);
+      const reserve = this.d.chains.gasReserve(token.chain);
+      if (!balances.some((b) => b > reserve)) {
+        throw new UserError(`Za mało ${token.nativeSymbol} w portfelach (każdy poniżej rezerwy na opłaty)`);
       }
     }
 
@@ -291,19 +325,18 @@ export class Coordinator {
     if (!market.isFresh(settings.get().risk.maxDataAgeSeconds) || !market.snapshot) {
       throw new UserError('Brak aktualnych danych rynkowych — zakup wstrzymany');
     }
-    const balanceSol = this.balanceSol(s);
-    const st = stats.compute(s, { balanceSol });
-    const check = risk.checkBuy({
+    const st = stats.compute(s, { balanceSol: this.balanceSol(s) });
+    const check = risk.checkBuyOnWallets({
       session: s,
       usd,
       solUsd: market.snapshot.solUsd,
       stats: st,
       openPositions: repo.listOpenPositions(s.id),
-      balanceSol,
+      wallets: this.walletBalances(s),
       manual: true,
     });
     if (!check.ok) throw new UserError(`Zlecenie odrzucone przez limity ryzyka: ${check.reason}`);
-    return queue.enqueue({ sessionId: s.id, side: 'buy', valueSol: check.valueSol, reason: 'manual:buy', priority: 1 });
+    return queue.enqueue({ sessionId: s.id, side: 'buy', walletId: check.walletId, valueSol: check.valueSol, reason: 'manual:buy', priority: 1 });
   }
 
   manualSell(positionId: number): Order {

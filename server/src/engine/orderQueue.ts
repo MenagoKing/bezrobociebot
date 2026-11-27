@@ -1,4 +1,4 @@
-import type { Order, OrderSide, SessionRecord } from '../../../shared/types.ts';
+import { MAIN_WALLET_ID, type Order, type OrderSide, type SessionRecord } from '../../../shared/types.ts';
 import type { SettingsService } from '../config/settingsService.ts';
 import type { ErrorMonitor } from '../core/errorMonitor.ts';
 import type { EventBus } from '../core/eventBus.ts';
@@ -33,15 +33,30 @@ export class OrderQueue {
     this.d = deps;
   }
 
-  enqueue(o: { sessionId: number; side: OrderSide; valueSol?: number | null; positionId?: number | null; reason: string; priority?: number }): Order {
+  /**
+   * Kupno: `walletId` wskazuje portfel, z którego kupić (domyślnie główny).
+   * Sprzedaż: portfel zawsze wynika z pozycji — tokeny są na portfelu, który ją otworzył.
+   */
+  enqueue(o: {
+    sessionId: number;
+    side: OrderSide;
+    walletId?: number;
+    valueSol?: number | null;
+    positionId?: number | null;
+    reason: string;
+    priority?: number;
+  }): Order {
+    let walletId = o.walletId ?? MAIN_WALLET_ID;
     if (o.side === 'sell' && o.positionId) {
       const dup = this.d.repo
         .listOrders({ sessionId: o.sessionId, statuses: ['pending', 'executing'] })
         .find((x) => x.side === 'sell' && x.positionId === o.positionId);
       if (dup) return dup;
+      walletId = this.d.repo.getPosition(o.positionId)?.walletId ?? walletId;
     }
     const order = this.d.repo.createOrder({
       sessionId: o.sessionId,
+      walletId,
       side: o.side,
       valueSol: o.valueSol ?? null,
       positionId: o.positionId ?? null,
@@ -128,13 +143,14 @@ export class OrderQueue {
       },
     };
     try {
-      const ctx = { session, token };
+      const ctx = { session, token, walletId: order.walletId, firstBuyOnWallet: !repo.walletHasPosition(session.id, order.walletId) };
       let fill: Fill;
       if (order.side === 'buy') {
         if (!order.valueSol || order.valueSol <= 0) throw new Error('Brak kwoty zlecenia kupna');
         fill = await executor.buy(ctx, order.valueSol, hooks);
       } else {
-        const isLast = repo.listOpenPositions(session.id).length === 1;
+        // ostatnia pozycja na tym portfelu: sprzedaj całe saldo tokena (bez pyłu)
+        const isLast = repo.listOpenPositions(session.id).filter((p) => p.walletId === order.walletId).length === 1;
         fill = await executor.sell(ctx, position!, isLast, hooks);
       }
       this.publish(this.apply(order, fill));
@@ -183,7 +199,8 @@ export class OrderQueue {
       const session = repo.getSession(order.sessionId);
       const token = session ? repo.getSessionToken(session.id) : null;
       try {
-        const fill = session && token ? await getExecutor(session).reconcile({ session, token }, order) : null;
+        const ctx = session && token ? { session, token, walletId: order.walletId, firstBuyOnWallet: !repo.walletHasPosition(session.id, order.walletId) } : null;
+        const fill = ctx ? await getExecutor(ctx.session).reconcile(ctx, order) : null;
         if (fill) {
           this.publish(this.apply(order, fill));
           errors.record('orders.recovery', `Zlecenie #${order.id} zostało wykonane przed restartem — zaksięgowano`, { level: 'warn' });
