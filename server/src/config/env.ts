@@ -25,10 +25,7 @@ export const env = {
   ),
   webDist: path.join(rootDir, 'web', 'dist'),
   masterKey: process.env.MASTER_KEY || null,
-  adminPassword: process.env.ADMIN_PASSWORD || null,
-  cookieSecure: process.env.COOKIE_SECURE === 'true',
   trustProxy: process.env.TRUST_PROXY === 'true',
-  sessionTtlHours: num('SESSION_TTL_HOURS', 12),
   logLevel: process.env.LOG_LEVEL ?? 'info',
   // Twardy wyłącznik po stronie serwera: bez tej flagi tryb live jest niedostępny.
   liveTradingEnabled: process.env.LIVE_TRADING_ENABLED === 'true',

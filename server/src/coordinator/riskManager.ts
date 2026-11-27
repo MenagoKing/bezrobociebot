@@ -3,22 +3,7 @@ import type { SettingsService } from '../config/settingsService.ts';
 import type { Repository } from '../db/repository.ts';
 import type { ChainRegistry } from '../chains/chainRegistry.ts';
 
-export type RiskResult = { ok: true; valueSol: number; walletId: number } | { ok: false; reason: string };
-
-/** Portfel dostępny dla zakupu wraz z saldem waluty natywnej (paper: wspólne saldo symulacyjne). */
-export interface WalletBalance {
-  id: number;
-  balanceSol: number | null;
-}
-
-interface BuyParams {
-  session: SessionRecord;
-  usd: number;
-  solUsd: number;
-  stats: SessionStats;
-  openPositions: Position[];
-  manual: boolean;
-}
+export type RiskResult = { ok: true; valueSol: number } | { ok: false; reason: string };
 
 /** Limity ryzyka egzekwowane przed każdym zakupem oraz w sposób ciągły. */
 export class RiskManager {
@@ -47,36 +32,15 @@ export class RiskManager {
     return null;
   }
 
-  /**
-   * Wybór portfela do zakupu + pełna kontrola ryzyka. Portfel musi mieć wolne miejsce w limicie
-   * „pozycji na portfel” (otwarte pozycje + zlecenia kupna w kolejce); najpierw najmniej zajęte,
-   * przy remisie główny. Zwraca pierwszy portfel, który przechodzi wszystkie kontrole (w tym saldo).
-   */
-  checkBuyOnWallets(p: BuyParams & { wallets: WalletBalance[] }): RiskResult {
-    if (p.wallets.length === 0) return { ok: false, reason: 'brak portfela do handlu (Konto i portfel)' };
-    const max = this.settings.get().trading.maxPositionsPerWallet;
-    const usage = new Map<number, number>();
-    const bump = (id: number) => usage.set(id, (usage.get(id) ?? 0) + 1);
-    for (const pos of p.openPositions) bump(pos.walletId);
-    for (const o of this.repo.listOrders({ sessionId: p.session.id, statuses: ['pending', 'executing'], limit: 1000 })) {
-      if (o.side === 'buy') bump(o.walletId);
-    }
-    const free = p.wallets
-      .filter((w) => max === 0 || (usage.get(w.id) ?? 0) < max)
-      .sort((a, b) => (usage.get(a.id) ?? 0) - (usage.get(b.id) ?? 0) || a.id - b.id);
-    if (free.length === 0) {
-      return { ok: false, reason: `wszystkie portfele (${p.wallets.length}) mają już ${max} otw. poz. — limit na portfel` };
-    }
-    let first: RiskResult | null = null;
-    for (const w of free) {
-      const r = this.checkBuy({ ...p, walletId: w.id, balanceSol: w.balanceSol });
-      if (r.ok) return r;
-      first ??= r;
-    }
-    return first!;
-  }
-
-  checkBuy(p: BuyParams & { walletId: number; balanceSol: number | null }): RiskResult {
+  checkBuy(p: {
+    session: SessionRecord;
+    usd: number;
+    solUsd: number;
+    stats: SessionStats;
+    openPositions: Position[];
+    balanceSol: number | null;
+    manual: boolean;
+  }): RiskResult {
     const { trading: t, risk: r } = this.settings.get();
     const allowedStatus = p.manual ? ['running', 'paused'] : ['running'];
     if (!allowedStatus.includes(p.session.status)) return { ok: false, reason: `sesja w stanie ${p.session.status}` };
@@ -106,13 +70,13 @@ export class RiskManager {
     if (p.balanceSol === null) return { ok: false, reason: 'nieznane saldo portfela' };
     const chain = p.session.chain;
     const sym = p.session.nativeSymbol;
-    const required = valueSol + this.chains.networkFeeEstimate(chain) + this.chains.firstBuyRent(p.session, !this.repo.walletHasPosition(p.session.id, p.walletId)) + this.chains.gasReserve(chain);
+    const required = valueSol + this.chains.networkFeeEstimate(chain) + this.chains.firstBuyRent(p.session) + this.chains.gasReserve(chain);
     if (required > p.balanceSol + 1e-12) {
       return {
         ok: false,
-        reason: `niewystarczające saldo portfela${p.walletId ? ` #${p.walletId}` : ''}: potrzeba ${required.toFixed(6)} ${sym} (z opłatami i rezerwą), dostępne ${p.balanceSol.toFixed(6)} ${sym}`,
+        reason: `niewystarczające saldo: potrzeba ${required.toFixed(6)} ${sym} (z opłatami i rezerwą), dostępne ${p.balanceSol.toFixed(6)} ${sym}`,
       };
     }
-    return { ok: true, valueSol, walletId: p.walletId };
+    return { ok: true, valueSol };
   }
 }

@@ -132,6 +132,7 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_equity_session ON equity_snapshots(session_id, ts);
 
+  -- callout_templates / callouts: po usuniętym Callout Managerze; zostają, żeby nie zmieniać historii migracji
   CREATE TABLE callout_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -197,22 +198,5 @@ export const MIGRATIONS: string[] = [
     archived_at INTEGER NOT NULL
   );
   CREATE INDEX idx_wallet_archive_kind ON wallet_archive(kind, archived_at);
-  `,
-  // 4: dodatkowe portfele handlowe (klucz szyfrowany jak w secrets, AAD = nazwa sekretu portfela danej sieci)
-  //    oraz przypisanie pozycji i zleceń do portfela (0 = główny portfel bota)
-  `
-  CREATE TABLE trading_wallets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL CHECK (kind IN ('solana', 'evm')),
-    label TEXT NOT NULL DEFAULT '',
-    address TEXT NOT NULL,
-    ciphertext TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL
-  );
-  CREATE UNIQUE INDEX idx_trading_wallets_address ON trading_wallets(kind, lower(address));
-  ALTER TABLE positions ADD COLUMN wallet_id INTEGER NOT NULL DEFAULT 0;
-  ALTER TABLE orders ADD COLUMN wallet_id INTEGER NOT NULL DEFAULT 0;
-  CREATE INDEX idx_positions_wallet ON positions(session_id, wallet_id, status);
   `,
 ];

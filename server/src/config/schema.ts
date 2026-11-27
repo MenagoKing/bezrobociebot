@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { CALLOUT_EVENTS, SCENARIOS } from '../../../shared/types.ts';
+import { SCENARIOS } from '../../../shared/types.ts';
+import { DEFAULT_TACTICS } from '../../../shared/tactics.ts';
 import type { AppSettings, SettingsSection } from '../../../shared/types.ts';
 
 const scenario = z.enum(SCENARIOS);
@@ -20,8 +21,9 @@ export const tradingSchema = z
     entryScenarios: z.array(scenario),
     exitOnScenarios: z.array(scenario),
     minConfidence: z.number().min(0).max(1),
+    minVolumeRatio: z.number().min(0).max(100),
+    minBuySellRatio: z.number().min(0).max(100),
     maxOpenPositions: z.number().int().min(1).max(50),
-    maxPositionsPerWallet: z.number().int().min(0).max(50),
     buyCooldownSeconds: z.number().int().min(0).max(86_400),
     minLiquidityUsd: z.number().min(0),
     evaluationIntervalSeconds: z.number().min(1).max(300),
@@ -76,22 +78,6 @@ export const analysisSchema = z.object({
   downSlopePct: z.number().min(0),
 });
 
-const calloutEvent = z.object({
-  enabled: z.boolean(),
-  probabilityPct: pct(100),
-  minIntervalSec: z.number().int().min(0).max(86_400),
-});
-
-export const calloutSchema = z.object({
-  enabled: z.boolean(),
-  requireApproval: z.boolean(),
-  autoLabel: z.string().min(1).max(60),
-  events: z.object(Object.fromEntries(CALLOUT_EVENTS.map((e) => [e, calloutEvent])) as Record<
-    (typeof CALLOUT_EVENTS)[number],
-    typeof calloutEvent
-  >),
-});
-
 export const systemSchema = z.object({
   marketPollMs: z.number().int().min(1000).max(60_000),
   candleRefreshSec: z.number().int().min(5).max(600),
@@ -130,13 +116,35 @@ export const evmSchema = z
   })
   .refine((v) => new Set(v.chains.map((c) => c.key)).size === v.chains.length, { message: 'Klucze sieci muszą być unikalne', path: ['chains'] });
 
+const tacticSetSchema = z
+  .object({
+    entryScenarios: z.array(scenario),
+    exitOnScenarios: z.array(scenario),
+    minConfidence: z.number().min(0).max(1),
+    minVolumeRatio: z.number().min(0).max(100),
+    minBuySellRatio: z.number().min(0).max(100),
+    takeProfitPct: pct(),
+    stopLossPct: pct(100),
+    trailingStopPct: pct(100),
+    minHoldSeconds: z.number().int().min(0).max(86_400),
+    maxHoldSeconds: z.number().int().min(0).max(7 * 86_400),
+    buyCooldownSeconds: z.number().int().min(0).max(86_400),
+  })
+  .refine((v) => v.maxHoldSeconds === 0 || v.maxHoldSeconds >= v.minHoldSeconds, {
+    message: 'Maks. czas trzymania musi być ≥ minimalnego (lub 0)',
+    path: ['maxHoldSeconds'],
+  });
+
+/** Taktyki Playzone — edytowalne w zakładce „Strategia”. */
+export const tacticsSchema = z.object({ volume: tacticSetSchema, maxprofit: tacticSetSchema });
+
 export const SECTION_SCHEMAS = {
   trading: tradingSchema,
   risk: riskSchema,
   analysis: analysisSchema,
-  callouts: calloutSchema,
   system: systemSchema,
   evm: evmSchema,
+  tactics: tacticsSchema,
 } satisfies Record<SettingsSection, z.ZodType>;
 
 // Wartości domyślne zgodne z założeniami projektu (pkt 5). Nie są rekomendacją inwestycyjną.
@@ -155,8 +163,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     entryScenarios: ['MODERATE_GROWTH', 'BASE_BUILDING'],
     exitOnScenarios: ['DOWNTREND'],
     minConfidence: 0.3,
+    minVolumeRatio: 0,
+    minBuySellRatio: 0,
     maxOpenPositions: 1,
-    maxPositionsPerWallet: 0,
     buyCooldownSeconds: 90,
     minLiquidityUsd: 3000,
     evaluationIntervalSeconds: 3,
@@ -199,17 +208,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     stableMaxVolPct: 1.0,
     highVolPct: 4,
     downSlopePct: 0.25,
-  },
-  callouts: {
-    enabled: true,
-    requireApproval: true,
-    autoLabel: '🤖 [AUTO]',
-    events: {
-      buy: { enabled: true, probabilityPct: 100, minIntervalSec: 0 },
-      sell: { enabled: false, probabilityPct: 100, minIntervalSec: 0 },
-      close_profit: { enabled: true, probabilityPct: 100, minIntervalSec: 0 },
-      close_loss: { enabled: true, probabilityPct: 100, minIntervalSec: 0 },
-    },
   },
   system: {
     marketPollMs: 3000,
@@ -303,6 +301,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       },
     ],
   },
+  tactics: structuredClone(DEFAULT_TACTICS),
 };
 
 export function formatZodError(err: z.ZodError): string {

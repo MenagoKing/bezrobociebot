@@ -1,29 +1,19 @@
 import fs from 'node:fs';
 import fastifyStatic from '@fastify/static';
-import Fastify, { LogController, type FastifyBaseLogger, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyRequest } from 'fastify';
 import type { AppContext } from '../app.ts';
 import { logger } from '../core/logger.ts';
 import { UserError } from '../core/util.ts';
 import { registerRoutes } from './routes.ts';
 import { registerStream } from './stream.ts';
 
-export const COOKIE = 'sd_session';
-const PUBLIC = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/setup', '/api/health']);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+/** Nazwy hosta, pod którymi panel jest dostępny (ochrona przed DNS rebinding — obca strona podszywająca się pod localhost). */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
-export function readCookie(req: FastifyRequest, name: string): string | undefined {
-  const header = req.headers.cookie;
-  if (!header) return undefined;
-  for (const part of header.split(';')) {
-    const [k, ...v] = part.trim().split('=');
-    if (k === name) return decodeURIComponent(v.join('='));
-  }
-  return undefined;
-}
-
-export function setSessionCookie(ctx: AppContext, reply: FastifyReply, token: string, maxAgeSec: number): void {
-  const secure = ctx.env.cookieSecure ? '; Secure' : '';
-  reply.header('set-cookie', `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}${secure}`);
+function isLocalHostHeader(req: FastifyRequest): boolean {
+  const host = (req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '');
+  return LOCAL_HOSTS.has(host);
 }
 
 export function isLoopback(req: FastifyRequest): boolean {
@@ -46,14 +36,16 @@ export async function buildServer(ctx: AppContext) {
       'content-security-policy',
       "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
     );
+    // Panel nie ma haseł — dlatego działa wyłącznie na tym komputerze (połączenie z 127.0.0.1 i adres localhost).
+    if (!isLoopback(req) || !isLocalHostHeader(req)) {
+      return reply.status(403).type('text/plain; charset=utf-8').send('SolDesk działa bez hasła, więc jest dostępny tylko z komputera, na którym jest uruchomiony (http://127.0.0.1).');
+    }
     const url = req.url.split('?')[0]!;
     if (!url.startsWith('/api/')) return;
     // ochrona CSRF: zmiany stanu wymagają własnego nagłówka (formularze z obcych stron go nie wyślą)
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== 'soldesk') {
       return reply.status(403).send({ error: 'Brak nagłówka X-Requested-With' });
     }
-    if (PUBLIC.has(url)) return;
-    if (!ctx.auth.validate(readCookie(req, COOKIE))) return reply.status(401).send({ error: 'Wymagane logowanie' });
   });
 
   app.addHook('onResponse', async (req, reply) => {
@@ -68,7 +60,7 @@ export async function buildServer(ctx: AppContext) {
       return reply.status(err.statusCode ?? 400).send({ error: err.message });
     }
     ctx.errors.record('api', err, { context: { method: req.method, url: req.url.split('?')[0] } });
-    return reply.status(500).send({ error: 'Błąd serwera — szczegóły w zakładce System' });
+    return reply.status(500).send({ error: 'Błąd serwera — szczegóły w Ustawienia → Monitoring' });
   });
 
   registerStream(app, ctx);

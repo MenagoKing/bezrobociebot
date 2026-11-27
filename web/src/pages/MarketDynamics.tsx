@@ -10,7 +10,7 @@ const ANALYSIS_GROUPS: FieldGroup[] = [
   {
     title: 'Okno analizy',
     fields: [
-      { key: 'timeframeSec', label: 'Interwał świecy', type: 'select', options: [['15', '15 s (symulator)'], ['60', '1 min'], ['300', '5 min'], ['900', '15 min'], ['3600', '1 h']] },
+      { key: 'timeframeSec', label: 'Interwał świecy', type: 'select', options: [['60', '1 min'], ['300', '5 min'], ['900', '15 min'], ['3600', '1 h']] },
       { key: 'lookbackCandles', label: 'Liczba świec w oknie', type: 'number', step: 1 },
       { key: 'momentumBars', label: 'Świece dla momentum', type: 'number', step: 1 },
       { key: 'minSamples', label: 'Min. świec do klasyfikacji', type: 'number', step: 1 },
@@ -38,6 +38,7 @@ const ANALYSIS_GROUPS: FieldGroup[] = [
   },
 ];
 
+/** Ustawienia → Analiza rynku: wskaźniki na żywo, historia scenariuszy i konfiguracja klasyfikacji. */
 export function MarketDynamics() {
   const analysis = useStore((s) => s.market.analysis);
   const candles = useStore((s) => s.market.candles);
@@ -50,10 +51,7 @@ export function MarketDynamics() {
   return (
     <>
       <div className="spread">
-        <div>
-          <h1 className="page-title">Market Dynamics</h1>
-          <div className="page-sub">Klasyfikacja sytuacji rynkowej tokena na podstawie trendu, dynamiki, zmienności, amplitudy, wolumenu i płynności.</div>
-        </div>
+        <span className="small muted">Stan źródła danych rynkowych</span>
         <Badge tone={feed.status === 'ok' ? 'green' : feed.status === 'idle' ? 'gray' : feed.status === 'degraded' ? 'amber' : 'red'} dot>
           feed: {feed.status} {feed.lastTickAt ? `· ${fmtAgo(feed.lastTickAt)}` : ''}
         </Badge>

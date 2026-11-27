@@ -26,12 +26,9 @@ await startServices(ctx);
 const app = await buildServer(ctx);
 await app.listen({ port: env.port, host: env.host });
 logger.info(
-  { url: `http://${env.host}:${env.port}`, live: env.liveTradingEnabled, setupRequired: ctx.auth.isSetupRequired() },
+  { url: `http://${env.host}:${env.port}`, live: env.liveTradingEnabled },
   'SolDesk uruchomiony',
 );
-if (ctx.auth.isSetupRequired()) {
-  logger.warn('Brak hasła administratora: otwórz panel z tego komputera (localhost), aby je ustawić, albo ustaw ADMIN_PASSWORD w .env');
-}
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

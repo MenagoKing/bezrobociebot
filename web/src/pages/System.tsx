@@ -6,6 +6,8 @@ import { ActionButton, Badge, DataTable, Kpi, Panel } from '../components/ui.tsx
 import { fmtAgo, fmtDateTime, fmtDuration, fmtNum } from '../format.ts';
 import { useStore } from '../store.ts';
 import { EvmChainsPanel } from '../components/EvmChains.tsx';
+import type { AccountInfo } from '../../../shared/types.ts';
+import { SecretRow } from './Account.tsx';
 
 const SYSTEM_GROUPS: FieldGroup[] = [
   {
@@ -20,9 +22,8 @@ const SYSTEM_GROUPS: FieldGroup[] = [
   {
     title: 'Połączenia',
     fields: [
-      { key: 'rpcUrl', label: 'Publiczny RPC Solany', type: 'text', help: 'Prywatny URL (z kluczem) ustaw w zakładce Konto; RPC sieci EVM — w sekcji Sieci EVM' },
+      { key: 'rpcUrl', label: 'Publiczny RPC Solany', type: 'text', help: 'Prywatny URL (z kluczem API) ustawisz w panelu „Prywatny RPC Solany” poniżej' },
       { key: 'jupiterBaseUrl', label: 'Jupiter Swap API', type: 'text' },
-      { key: 'simulatedSolUsd', label: 'Kurs SOL w symulatorze', type: 'number', unit: 'USD', step: 1 },
     ],
   },
   {
@@ -35,7 +36,8 @@ const SYSTEM_GROUPS: FieldGroup[] = [
   },
 ];
 
-export function System() {
+/** Ustawienia → Monitoring: stan procesu, błędy i kopie zapasowe. */
+export function SystemMonitoring() {
   const health = useStore((s) => s.health);
   const recent = useStore((s) => s.recentErrors);
   const [errors, setErrors] = useState<ErrorEntry[]>([]);
@@ -48,10 +50,6 @@ export function System() {
   const feed = health?.feed;
   return (
     <>
-      <div>
-        <h1 className="page-title">System</h1>
-        <div className="page-sub">Monitoring procesu, błędy, kopie zapasowe i ustawienia infrastruktury.</div>
-      </div>
       <div className="kpis">
         <Kpi label="Czas pracy" value={fmtDuration(health?.uptimeSec)} />
         <Kpi label="CPU procesu" value={`${fmtNum(health?.cpuPct, 1)}%`} sub={health?.loadAvg.some((v) => v > 0) ? `load ${health.loadAvg.map((v) => v.toFixed(2)).join(' / ')}` : undefined} />
@@ -106,8 +104,34 @@ export function System() {
         />
         <div className="panel-body small muted">Kopie trafiają do data/backups. Klucz główny (data/master.key lub MASTER_KEY) przechowuj osobno — bez niego zaszyfrowanych sekretów nie da się odczytać.</div>
       </Panel>
+    </>
+  );
+}
+
+/** Ustawienia → Sieci i połączenia: sieci EVM, RPC, częstotliwości odświeżania i kopie. */
+/** Prywatny RPC Solany (zaszyfrowany sekret) — przeniesiony tu z zakładki Konta. */
+function PrivateRpcPanel() {
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  useEffect(() => {
+    void api.get<AccountInfo>('/api/account').then(setAccount).catch(() => undefined);
+  }, []);
+  const rpc = account?.secrets.find((s) => s.name === 'rpc_url');
+  return (
+    <Panel title="Prywatny RPC Solany (zaszyfrowany)">
+      {rpc ? <SecretRow name="rpc_url" info={rpc} onChange={setAccount} /> : <div className="muted">Ładowanie…</div>}
+      <div className="small muted mt">
+        Adres jest szyfrowany kluczem głównym (MASTER_KEY lub data/master.key), który nie jest zapisany w bazie. Darmowy prywatny RPC dają np. Helius, QuickNode i Triton.
+      </div>
+    </Panel>
+  );
+}
+
+export function SystemConnections() {
+  return (
+    <>
+      <SettingsForm section="system" title="Połączenia, odświeżanie i kopie zapasowe" groups={SYSTEM_GROUPS} />
+      <PrivateRpcPanel />
       <EvmChainsPanel />
-      <SettingsForm section="system" title="Ustawienia systemu" groups={SYSTEM_GROUPS} />
     </>
   );
 }

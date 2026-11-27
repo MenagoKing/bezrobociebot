@@ -22,9 +22,9 @@ export class JupiterExecutor implements Executor {
   readonly mode = 'live' as const;
   private rpc: SolanaRpc;
   private settings: SettingsService;
-  private getKeypair: (walletId: number) => SolanaKeypair;
+  private getKeypair: () => SolanaKeypair;
 
-  constructor(rpc: SolanaRpc, settings: SettingsService, getKeypair: (walletId: number) => SolanaKeypair) {
+  constructor(rpc: SolanaRpc, settings: SettingsService, getKeypair: () => SolanaKeypair) {
     this.rpc = rpc;
     this.settings = settings;
     this.getKeypair = getKeypair;
@@ -124,7 +124,7 @@ export class JupiterExecutor implements Executor {
   }
 
   async buy(ctx: ExecContext, valueSol: number, hooks: ExecHooks): Promise<Fill> {
-    const kp = this.getKeypair(ctx.walletId);
+    const kp = this.getKeypair();
     const lamports = Math.floor(valueSol * 1e9);
     if (lamports <= 0) throw new Error('Kwota zakupu jest zbyt mała');
     const quote = await this.quote(WSOL_MINT, ctx.token.address, String(lamports));
@@ -133,7 +133,7 @@ export class JupiterExecutor implements Executor {
   }
 
   async sell(ctx: ExecContext, position: Position, isLastPosition: boolean, hooks: ExecHooks): Promise<Fill> {
-    const kp = this.getKeypair(ctx.walletId);
+    const kp = this.getKeypair();
     const balance = await this.rpc.getTokenBalance(kp.address, ctx.token.address);
     if (balance.raw === 0n) throw new Error('Brak tokenów w portfelu do sprzedaży');
     let raw = BigInt(Math.floor(position.amount * 10 ** balance.decimals));
@@ -147,7 +147,7 @@ export class JupiterExecutor implements Executor {
     if (!order.txSignature) return null;
     const status = await this.rpc.getSignatureStatus(order.txSignature);
     if (!status || status.err || !status.confirmationStatus) return null;
-    const kp = this.getKeypair(ctx.walletId);
+    const kp = this.getKeypair();
     return this.parseFill(await this.loadTx(order.txSignature), kp.address, ctx.token.address, order.side, order.txSignature);
   }
 }

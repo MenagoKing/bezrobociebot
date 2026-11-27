@@ -34,8 +34,6 @@ function toStreamEvent<K extends BusEventName>(ctx: AppContext, name: K, payload
     }
     case 'stats.updated':
       return { type: 'stats.updated', stats: payload as BusEvents['stats.updated'] };
-    case 'callout.updated':
-      return { type: 'callout.updated', callout: payload as BusEvents['callout.updated'] };
     case 'wallet.updated':
       return { type: 'wallet.updated', wallet: payload as BusEvents['wallet.updated'] };
     case 'system.health':

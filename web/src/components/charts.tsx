@@ -8,7 +8,8 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ApiError, api } from '../api.ts';
 import type { Candle, EquityPoint } from '../../../shared/types.ts';
 import { fmtPrice } from '../format.ts';
 
@@ -33,7 +34,7 @@ function baseOptions() {
 }
 
 /** Wykres świecowy z wolumenem w osobnym panelu; aktualizacje przyrostowe. */
-export function CandleChart({ candles, height = 400 }: { candles: Candle[]; height?: number }) {
+export function CandleChart({ candles, height = 400, seconds = false }: { candles: Candle[]; height?: number; seconds?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const price = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -42,7 +43,7 @@ export function CandleChart({ candles, height = 400 }: { candles: Candle[]; heig
 
   useEffect(() => {
     if (!box.current) return;
-    const c = createChart(box.current, baseOptions());
+    const c = createChart(box.current, { ...baseOptions(), timeScale: { ...baseOptions().timeScale, secondsVisible: seconds } });
     price.current = c.addSeries(CandlestickSeries, {
       upColor: UP,
       downColor: DOWN,
@@ -63,7 +64,7 @@ export function CandleChart({ candles, height = 400 }: { candles: Candle[]; heig
       c.remove();
       chart.current = null;
     };
-  }, [height]);
+  }, [height, seconds]);
 
   useEffect(() => {
     const p = price.current;
@@ -87,6 +88,122 @@ export function CandleChart({ candles, height = 400 }: { candles: Candle[]; heig
   }, [candles]);
 
   return <div ref={box} className="chart-box" style={{ height }} />;
+}
+
+export const CHART_TIMEFRAMES: [number, string][] = [
+  [1, '1s'],
+  [5, '5s'],
+  [15, '15s'],
+  [30, '30s'],
+  [60, '1m'],
+  [300, '5m'],
+  [900, '15m'],
+  [3600, '1h'],
+  [14400, '4h'],
+  [43200, '12h'],
+  [86400, '1D'],
+];
+const TF_KEY = 'soldesk.chartTf';
+
+/** świece pobrane w tej karcie — powrót do interwału pokazuje je od razu */
+const tfCache = new Map<string, Candle[]>();
+
+function friendlyError(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  return 'Brak połączenia z serwerem aplikacji';
+}
+
+/**
+ * Wykres świecowy z przełącznikiem interwału. W interwale bota pokazuje świece na żywo (baseCandles),
+ * w innym pobiera świece z serwera i odświeża je (sekundowe co 3 s, pozostałe co 15 s).
+ * Błąd nie czyści wykresu: zostają ostatnie świece, a pobieranie ponawia się samo z rosnącym odstępem.
+ */
+export function TimeframeChart({ address, baseCandles, baseTf, height, empty }: { address: string; baseCandles: Candle[]; baseTf: number; height: number; empty?: string }) {
+  const [tf, setTf] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(TF_KEY));
+    return CHART_TIMEFRAMES.some(([v]) => v === saved) ? saved : baseTf;
+  });
+  const key = `${address}:${tf}`;
+  const [own, setOwn] = useState<{ key: string; candles: Candle[] } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const useBase = tf === baseTf && baseCandles.length > 0;
+
+  useEffect(() => {
+    if (useBase) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
+    const cached = tfCache.get(key);
+    setOwn(cached ? { key, candles: cached } : null);
+    setProblem(null);
+    const load = async () => {
+      try {
+        const c = await api.get<Candle[]>(`/api/token/candles?address=${encodeURIComponent(address)}&tf=${tf}`);
+        if (!alive) return;
+        failures = 0;
+        if (c.length || !tfCache.get(key)?.length) {
+          tfCache.set(key, c);
+          setOwn({ key, candles: c });
+        }
+        setProblem(null);
+      } catch (e) {
+        if (!alive) return;
+        failures++;
+        setProblem(friendlyError(e));
+      }
+      if (alive) timer = setTimeout(load, failures ? Math.min(8_000, 2000 * 2 ** (failures - 1)) : tf < 60 ? 3_000 : 15_000);
+    };
+    void load();
+    // po powrocie do karty albo odzyskaniu sieci — od razu nowe dane
+    const wake = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timer) clearTimeout(timer);
+      void load();
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', wake);
+    };
+  }, [address, tf, useBase, key]);
+
+  const pick = (v: number) => {
+    setTf(v);
+    localStorage.setItem(TF_KEY, String(v));
+  };
+  const candles = useBase ? baseCandles : own?.key === key ? own.candles : null;
+  const note = useBase ? 'na żywo · interwał bota' : tf < 60 ? 'na żywo z ceny pobieranej co 3 s' : 'na żywo · historia odświeżana co 15 s';
+
+  return (
+    <>
+      <div className="chart-toolbar">
+        <span className="ths-label">Interwał</span>
+        <div className="seg seg-sm" role="group" aria-label="Interwał świec">
+          {CHART_TIMEFRAMES.map(([v, label]) => (
+            <button key={v} className={tf === v ? 'on' : ''} onClick={() => pick(v)} title={v === baseTf ? 'Interwał, na którym analizuje bot (na żywo)' : undefined}>
+              {label}
+              {v === baseTf && <span className="tf-dot" aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+        {problem ? <span className="small chart-retry">{problem} — ponawiam…</span> : <span className="small faint">{note}</span>}
+      </div>
+      {candles === null ? (
+        <div className="empty" style={{ height, display: 'grid', placeItems: 'center' }}>
+          {problem ? 'Ponawiam pobieranie świec…' : 'Ładuję świece…'}
+        </div>
+      ) : candles.length ? (
+        <CandleChart key={key} candles={candles} height={height} seconds={tf < 60} />
+      ) : (
+        <div className="empty" style={{ height, display: 'grid', placeItems: 'center' }}>
+          {tf < 60 ? 'Zbieram ceny — świece sekundowe pojawią się za kilka sekund' : (empty ?? 'Brak świec w tym interwale')}
+        </div>
+      )}
+    </>
+  );
 }
 
 /** Krzywa kapitału (USD). */

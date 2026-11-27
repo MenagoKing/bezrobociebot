@@ -5,11 +5,14 @@ import type {
   MarketAnalysis,
   MarketSnapshot,
   TokenInfo,
+  TokenPreview,
+  TokenSearchResult,
 } from '../../../shared/types.ts';
 import type { SettingsService } from '../config/settingsService.ts';
 import type { ErrorMonitor } from '../core/errorMonitor.ts';
 import type { EventBus } from '../core/eventBus.ts';
 import { UserError } from '../core/util.ts';
+import { ChartCandles, type Tick } from './chartCandles.ts';
 import { analyze } from './analyzer.ts';
 import { CandleSeries } from './candles.ts';
 import { LiveMarketProvider } from './liveProvider.ts';
@@ -42,6 +45,9 @@ export class MarketService {
   private needsFullCandles = false;
   private generation = 0;
   private nativeUsdCache = new Map<string, number>();
+  /** ceny z feedu (co marketPollMs) — z nich powstają świece sekundowe na wykresie */
+  private ticks: Tick[] = [];
+  private chart!: ChartCandles;
 
   private bus: EventBus;
   private settings: SettingsService;
@@ -57,6 +63,13 @@ export class MarketService {
       (chain) => chains.simulatedNativeUsd(chain),
       (chain) => chains.nativeSymbol(chain),
     );
+    this.chart = new ChartCandles(this.live, {
+      sessionToken: () => this.token,
+      sessionSnapshot: () => this.snapshot,
+      sessionTicks: () => this.ticks,
+      sessionSeries: () => ({ tf: this.series.timeframeSec, bars: this.series.bars }),
+      resolve: (address) => this.resolve(address, 'live'),
+    });
     bus.on('settings.updated', (s) => {
       if (this.token && s.analysis.timeframeSec !== this.series.timeframeSec) {
         void this.reloadCandles();
@@ -78,8 +91,38 @@ export class MarketService {
     if (parsed.kind === 'solana') return this.providerFor(source).resolveToken(parsed.address, SOLANA);
     if (source === 'live') return this.live.resolveEvmToken(parsed.address);
     const chain = this.chains.enabledEvm()[0];
-    if (!chain) throw new UserError('Brak włączonej sieci EVM (System → Sieci EVM)');
+    if (!chain) throw new UserError('Brak włączonej sieci EVM (Ustawienia → Sieci i połączenia)');
     return this.simulated.resolveToken(parsed.address, chain.key);
+  }
+
+  /**
+   * Podgląd tokena przed startem sesji: cena, świece i analiza scenariusza — bez uruchamiania feedu i bota.
+   * Błąd pobierania ceny lub świec nie blokuje podglądu (zwraca to, co się udało).
+   */
+  /** Wyszukiwanie tokena po nazwie/symbolu — zawsze w danych rzeczywistych (symulator nie ma listy tokenów). */
+  search(query: string): Promise<TokenSearchResult[]> {
+    return this.live.search(query);
+  }
+
+  /** Świece tylko do wyświetlenia na wykresie, w interwale wybranym przez użytkownika (analiza bota się nie zmienia). */
+  chartCandles(input: string, timeframeSec: number): Promise<Candle[]> {
+    const parsed = parseTokenInput(input);
+    if (!parsed) throw new UserError('Nieprawidłowy adres tokena');
+    return this.chart.get(parsed.address, timeframeSec);
+  }
+
+  async preview(input: string, source: DataSource): Promise<TokenPreview> {
+    const token = await this.resolve(input, source);
+    const provider = this.providerFor(source);
+    const { analysis: cfg } = this.settings.get();
+    const [snapshot, candles] = await Promise.all([
+      provider.fetchSnapshot(token).catch(() => null),
+      provider.fetchCandles(token, cfg.timeframeSec, Math.max(cfg.lookbackCandles * 3, 200)).catch(() => null),
+    ]);
+    const bars = candles ?? [];
+    this.chart.seed(token.address, cfg.timeframeSec, bars);
+    const analysis = bars.length ? analyze(bars, cfg, snapshot?.liquidityUsd ?? token.liquidityUsd) : null;
+    return { token, snapshot, candles: bars, analysis, timeframeSec: cfg.timeframeSec };
   }
 
   async start(token: TokenInfo, source: DataSource): Promise<void> {
@@ -91,6 +134,7 @@ export class MarketService {
     this.series.reset(this.settings.get().analysis.timeframeSec);
     this.snapshot = null;
     this.analysis = null;
+    this.ticks = [];
     await this.refreshCandles(gen);
     await this.poll(gen);
     this.scheduleCandles(gen);
@@ -129,6 +173,7 @@ export class MarketService {
         const replace = this.feed.lastCandleRefreshAt === null || this.needsFullCandles;
         this.needsFullCandles = false;
         this.series.merge(candles);
+        this.chart.seed(this.token.address, analysis.timeframeSec, this.series.bars);
         this.feed.lastCandleRefreshAt = Date.now();
         // pełna seria przy starcie/zmianie interwału, potem tylko ostatnie świece (mniej danych w SSE)
         this.bus.emit('market.candles', { candles: replace ? this.series.bars : this.series.bars.slice(-3), replace });
@@ -158,6 +203,8 @@ export class MarketService {
       // bez świec z API wolumen świecy szacujemy z bieżącego tempa (wolumen 5 min)
       const volumeDelta = this.hasApiCandles ? 0 : (snap.volume5mUsd / 300) * ((snap.ts - prevTs) / 1000);
       const candle = this.series.ingestTick(snap.ts, snap.priceUsd, Math.max(0, volumeDelta));
+      this.ticks.push({ ts: snap.ts, price: snap.priceUsd, vol: Math.max(0, (snap.volume5mUsd / 300) * ((snap.ts - prevTs) / 1000)) });
+      if (this.ticks.length > 6000) this.ticks.splice(0, this.ticks.length - 6000);
       const wasDown = this.feed.status !== 'ok';
       this.feed = { ...this.feed, status: 'ok', lastTickAt: snap.ts, consecutiveErrors: 0, lastError: null };
       if (wasDown) this.bus.emit('market.feed', this.feed);

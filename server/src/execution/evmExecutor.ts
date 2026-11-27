@@ -66,14 +66,14 @@ export class EvmExecutor implements Executor {
   private registry: ChainRegistry;
   private clients: EvmClients;
   private settings: SettingsService;
-  private getAccount: (walletId: number) => PrivateKeyAccount;
+  private getAccount: () => PrivateKeyAccount;
   private lifiApiKey: () => string | null;
 
   constructor(deps: {
     registry: ChainRegistry;
     clients: EvmClients;
     settings: SettingsService;
-    getAccount: (walletId: number) => PrivateKeyAccount;
+    getAccount: () => PrivateKeyAccount;
     lifiApiKey: () => string | null;
   }) {
     this.registry = deps.registry;
@@ -180,7 +180,7 @@ export class EvmExecutor implements Executor {
   async buy(ctx: ExecContext, valueSol: number, hooks: ExecHooks): Promise<Fill> {
     const chain = ctx.token.chain;
     const { cfg, base, slippage } = this.quoteParams(chain);
-    const account = this.getAccount(ctx.walletId);
+    const account = this.getAccount();
     const token = ctx.token.address as Hex;
     const wei = BigInt(Math.floor(valueSol * 1e18));
     if (wei <= 0n) throw new Error('Kwota zakupu jest zbyt mała');
@@ -200,7 +200,7 @@ export class EvmExecutor implements Executor {
   async sell(ctx: ExecContext, position: Position, isLastPosition: boolean, hooks: ExecHooks): Promise<Fill> {
     const chain = ctx.token.chain;
     const { cfg, base, slippage } = this.quoteParams(chain);
-    const account = this.getAccount(ctx.walletId);
+    const account = this.getAccount();
     const token = ctx.token.address as Hex;
     const decimals = await this.decimals(chain, token);
     const start = await this.balances(chain, account.address, token);
@@ -237,6 +237,6 @@ export class EvmExecutor implements Executor {
       .getTransactionReceipt({ hash: order.txSignature as Hex })
       .catch(() => null);
     if (!receipt || receipt.status !== 'success') return null;
-    return this.fillFromReceipt(chain, this.getAccount(ctx.walletId).address, ctx.token.address as Hex, receipt, order.side, 0n);
+    return this.fillFromReceipt(chain, this.getAccount().address, ctx.token.address as Hex, receipt, order.side, 0n);
   }
 }

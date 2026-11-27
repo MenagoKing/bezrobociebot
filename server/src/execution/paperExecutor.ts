@@ -47,7 +47,7 @@ export class PaperExecutor implements Executor {
       valueSol,
       feeSol,
       networkFeeSol: this.networkFee(ctx.session.chain),
-      rentSol: this.chains.firstBuyRent(ctx.session, ctx.firstBuyOnWallet),
+      rentSol: this.chains.firstBuyRent(ctx.session),
       priceSol: valueSol / amount,
       marketPriceSol: market,
       txSignature: null,

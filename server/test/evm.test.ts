@@ -112,8 +112,7 @@ test('sesja paper na sieci EVM (symulator): waluta ETH, bez rentu, opłata gazu 
   assert.equal(ctx.repo.listOpenPositions(session.id).length, 0);
 });
 
-test('portfel bota: generowanie (Solana i EVM), brak nadpisania, usuwanie klucza tylko z hasłem', async () => {
-  await ctx.auth.setup('haslo-testowe-123');
+test('portfel bota: generowanie (Solana i EVM), brak nadpisania, usuwanie klucza', async () => {
   const sol = ctx.account.generateWallet('solana');
   assert.match(sol.address, /^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
   assert.equal(ctx.account.get().walletAddress, sol.address);
@@ -126,9 +125,7 @@ test('portfel bota: generowanie (Solana i EVM), brak nadpisania, usuwanie klucza
   const blob = ctx.repo.getSecret('evm_private_key')!;
   assert.ok(!blob.includes(evm.address.slice(2, 10)));
 
-  await assert.rejects(ctx.account.deleteSecret('evm_private_key', undefined, '127.0.0.1'), /hasła/);
-  await assert.rejects(ctx.account.deleteSecret('evm_private_key', 'zle-haslo-000', '127.0.0.1'), /Nieprawidłowe/);
-  await ctx.account.deleteSecret('evm_private_key', 'haslo-testowe-123', '127.0.0.1');
+  await ctx.account.deleteSecret('evm_private_key');
   assert.equal(ctx.account.hasEvmKey(), false);
   // po usunięciu można wygenerować nowy portfel
   assert.notEqual(ctx.account.generateWallet('evm').address, evm.address);

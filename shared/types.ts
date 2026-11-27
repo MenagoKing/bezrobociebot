@@ -47,15 +47,6 @@ export const SCENARIO_LABELS: Record<Scenario, string> = {
   DOWNTREND: 'Downtrend',
 };
 
-export const CALLOUT_EVENTS = ['buy', 'sell', 'close_profit', 'close_loss'] as const;
-export type CalloutEvent = (typeof CALLOUT_EVENTS)[number];
-export const CALLOUT_EVENT_LABELS: Record<CalloutEvent, string> = {
-  buy: 'Kupno',
-  sell: 'Sprzedaż',
-  close_profit: 'Zamknięcie z zyskiem',
-  close_loss: 'Zamknięcie ze stratą',
-};
-
 export const PLATFORMS = ['pumpfun', 'gmgn', 'fomo', 'other'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
@@ -188,9 +179,11 @@ export interface TradingConfig {
   entryScenarios: Scenario[];
   exitOnScenarios: Scenario[];
   minConfidence: number;
+  /** min. wzrost wolumenu: wolumen w drugiej połowie okna analizy / w pierwszej (np. 1.5 = +50%); 0 = wyłączone */
+  minVolumeRatio: number;
+  /** min. przewaga kupujących: kupna / sprzedaże w ostatnich 5 min (np. 1.3); 0 = wyłączone */
+  minBuySellRatio: number;
   maxOpenPositions: number;
-  /** Ile pozycji naraz może mieć jeden portfel (0 = bez limitu; 1 = każda pozycja na osobnym portfelu). */
-  maxPositionsPerWallet: number;
   buyCooldownSeconds: number;
   minLiquidityUsd: number;
   evaluationIntervalSeconds: number;
@@ -237,19 +230,6 @@ export interface AnalysisConfig {
   downSlopePct: number;
 }
 
-export interface CalloutEventConfig {
-  enabled: boolean;
-  probabilityPct: number;
-  minIntervalSec: number;
-}
-
-export interface CalloutConfig {
-  enabled: boolean;
-  requireApproval: boolean;
-  autoLabel: string;
-  events: Record<CalloutEvent, CalloutEventConfig>;
-}
-
 export interface SystemConfig {
   marketPollMs: number;
   candleRefreshSec: number;
@@ -263,13 +243,32 @@ export interface SystemConfig {
   backupKeep: number;
 }
 
+/** Reguły wejścia/wyjścia jednej taktyki Playzone (kwoty i limity ryzyka są wspólne, w „trading”/„risk”). */
+export type TacticSet = Pick<
+  TradingConfig,
+  | 'entryScenarios'
+  | 'exitOnScenarios'
+  | 'minConfidence'
+  | 'minVolumeRatio'
+  | 'minBuySellRatio'
+  | 'takeProfitPct'
+  | 'stopLossPct'
+  | 'trailingStopPct'
+  | 'minHoldSeconds'
+  | 'maxHoldSeconds'
+  | 'buyCooldownSeconds'
+>;
+export const TACTIC_IDS = ['volume', 'maxprofit'] as const;
+export type TacticId = (typeof TACTIC_IDS)[number];
+export type TacticsConfig = Record<TacticId, TacticSet>;
+
 export interface AppSettings {
   trading: TradingConfig;
   risk: RiskConfig;
   analysis: AnalysisConfig;
-  callouts: CalloutConfig;
   system: SystemConfig;
   evm: EvmConfig;
+  tactics: TacticsConfig;
 }
 export type SettingsSection = keyof AppSettings;
 
@@ -304,13 +303,9 @@ export interface SessionRecord {
   summary: SessionStats | null;
 }
 
-/** 0 = główny portfel bota danej sieci; > 0 = id dodatkowego portfela handlowego. */
-export const MAIN_WALLET_ID = 0;
-
 export interface Position {
   id: number;
   sessionId: number;
-  walletId: number;
   status: 'open' | 'closed';
   openedAt: number;
   closedAt: number | null;
@@ -359,7 +354,6 @@ export interface Trade {
 export interface Order {
   id: number;
   sessionId: number;
-  walletId: number;
   side: OrderSide;
   valueSol: number | null;
   positionId: number | null;
@@ -423,29 +417,6 @@ export interface BotSnapshot {
   lastSignal: string | null;
 }
 
-export interface CalloutTemplate {
-  id: number;
-  name: string;
-  category: string;
-  event: CalloutEvent;
-  body: string;
-  enabled: boolean;
-  weight: number;
-  createdAt: number;
-}
-
-export interface Callout {
-  id: number;
-  templateId: number | null;
-  sessionId: number | null;
-  tradeId: number | null;
-  event: CalloutEvent;
-  body: string;
-  status: 'pending' | 'approved' | 'rejected';
-  createdAt: number;
-  decidedAt: number | null;
-}
-
 export interface ErrorEntry {
   id: number;
   ts: number;
@@ -465,17 +436,6 @@ export interface AccountInfo {
   secrets: { name: string; isSet: boolean; updatedAt: number | null }[];
   /** Poprzednie portfele bota (klucze zachowane w archiwum po zmianie portfela). */
   archivedWallets: ArchivedWallet[];
-  /** Dodatkowe portfele, z których bot może otwierać pozycje (obok głównego). */
-  tradingWallets: TradingWallet[];
-}
-
-export interface TradingWallet {
-  id: number;
-  kind: WalletKind;
-  label: string;
-  address: string;
-  enabled: boolean;
-  createdAt: number;
 }
 
 export type WalletKind = 'solana' | 'evm';
@@ -488,7 +448,7 @@ export interface ArchivedWallet {
 }
 
 /** Dane profilu bez sekretów i archiwum (zapisywane w tabeli account). */
-export type AccountProfile = Omit<AccountInfo, 'secrets' | 'archivedWallets' | 'tradingWallets'>;
+export type AccountProfile = Omit<AccountInfo, 'secrets' | 'archivedWallets'>;
 
 export interface WalletInfo {
   address: string | null;
@@ -499,20 +459,6 @@ export interface WalletInfo {
   updatedAt: number | null;
   error: string | null;
   evm: EvmWalletInfo | null;
-  /** Salda dodatkowych portfeli handlowych (Solana oraz EVM na monitorowanej sieci). */
-  extra: ExtraWalletInfo[];
-}
-
-export interface ExtraWalletInfo {
-  id: number;
-  kind: WalletKind;
-  label: string;
-  address: string;
-  chain: string;
-  nativeSymbol: string;
-  nativeBalance: number | null;
-  tokenBalance: number | null;
-  error: string | null;
 }
 
 export interface EvmWalletInfo {
@@ -555,7 +501,6 @@ export interface AppStateSnapshot {
   positions: Position[];
   trades: Trade[];
   orders: Order[];
-  callouts: Callout[];
   stats: SessionStats | null;
   wallet: WalletInfo;
   health: HealthInfo | null;
@@ -574,9 +519,33 @@ export type StreamEvent =
   | { type: 'trade.executed'; trade: Trade }
   | { type: 'position.updated'; position: Position }
   | { type: 'stats.updated'; stats: SessionStats | null }
-  | { type: 'callout.updated'; callout: Callout }
   | { type: 'wallet.updated'; wallet: WalletInfo }
   | { type: 'system.health'; health: HealthInfo }
   | { type: 'error'; error: ErrorEntry }
   | { type: 'settings.updated'; settings: AppSettings }
   | { type: 'risk.breach'; reason: string; action: string };
+
+/** Podgląd tokena przed startem sesji: dane rynkowe i analiza bez uruchamiania bota. */
+export interface TokenPreview {
+  token: TokenInfo;
+  snapshot: MarketSnapshot | null;
+  candles: Candle[];
+  analysis: MarketAnalysis | null;
+  timeframeSec: number;
+}
+
+/** Wynik wyszukiwania tokena po nazwie lub symbolu (DexScreener). */
+export interface TokenSearchResult {
+  address: string;
+  chain: string;
+  name: string;
+  symbol: string;
+  imageUrl?: string;
+  dexId: string;
+  priceUsd: number;
+  liquidityUsd: number;
+  marketCapUsd: number;
+  volume24hUsd: number;
+  /** ms epoch utworzenia pary, jeśli znane */
+  createdAt: number | null;
+}

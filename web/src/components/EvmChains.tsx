@@ -136,7 +136,6 @@ export function EvmChainsPanel() {
                           </label>
                           <label className="field"><span className="field-label">Opłata za transakcję ({c.nativeSymbol})</span><Num value={c.paperGasFeeNative} onChange={(v) => setChain(i, { paperGasFeeNative: v })} /></label>
                           <label className="field"><span className="field-label">Rezerwa na gaz ({c.nativeSymbol})</span><Num value={c.gasReserveNative} onChange={(v) => setChain(i, { gasReserveNative: v })} /></label>
-                          <label className="field"><span className="field-label">Kurs {c.nativeSymbol} w symulatorze (USD)</span><Num value={c.simulatedNativeUsd} onChange={(v) => setChain(i, { simulatedNativeUsd: v })} /></label>
                           <label className="field" style={{ gridColumn: '1 / -1' }}>
                             <span className="field-label">Allowlista kontraktów (router LI.FI) — jeden adres w linii; puste = bez ograniczenia</span>
                             <textarea
@@ -165,7 +164,7 @@ export function EvmChainsPanel() {
           </table>
         </div>
         <div className="small muted">
-          Token o adresie 0x… jest szukany na włączonych sieciach (wybierana jest ta z największą płynnością). Transakcje live idą przez LI.FI i są podpisywane lokalnie kluczem EVM z zakładki Konto; środki i approve mogą trafić wyłącznie do kontraktów z allowlisty.
+          Token o adresie 0x… jest szukany na włączonych sieciach (wybierana jest ta z największą płynnością). Transakcje live idą przez LI.FI i są podpisywane lokalnie kluczem EVM z zakładki Konta; środki i approve mogą trafić wyłącznie do kontraktów z allowlisty.
         </div>
       </div>
     </Panel>

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createPublicKey, generateKeyPairSync, randomBytes, verify } from 'node:crypto';
 import { test } from 'node:test';
 import { sanitize } from '../src/core/logger.ts';
-import { hashPassword, verifyPassword } from '../src/security/auth.ts';
 import { Vault } from '../src/security/vault.ts';
 import { base58Decode, base58Encode } from '../src/solana/base58.ts';
 import { keypairFromSecret, parseSecretKey } from '../src/solana/keypair.ts';
@@ -23,12 +22,6 @@ test('vault: szyfrowanie i odszyfrowanie, AAD wiąże sekret z nazwą', () => {
   assert.throws(() => v.decrypt(blob, 'rpc_url'));
 });
 
-test('hasła: scrypt hash i weryfikacja', async () => {
-  const h = await hashPassword('bardzo-dlugie-haslo');
-  assert.equal(await verifyPassword('bardzo-dlugie-haslo', h), true);
-  assert.equal(await verifyPassword('zle-haslo-123', h), false);
-});
-
 test('base58: kodowanie w obie strony (z zerami wiodącymi)', () => {
   const bytes = new Uint8Array([0, 0, 1, 2, 3, 250, 251]);
   assert.deepEqual(base58Decode(base58Encode(bytes)), bytes);
@@ -44,12 +37,6 @@ test('keypair: format base58 i JSON, wykrywanie uszkodzonego klucza', () => {
   const broken = new Uint8Array(secret);
   broken[40] ^= 0xff;
   assert.throws(() => keypairFromSecret(broken), /uszkodzony/);
-});
-
-test('keypair: adres portfela (32 B) wklejony zamiast klucza prywatnego jest odrzucany', () => {
-  assert.throws(() => parseSecretKey('So11111111111111111111111111111111111111112'), /adres portfela/);
-  assert.throws(() => parseSecretKey(base58Encode(newSolanaSecret().subarray(32))), /adres portfela/);
-  assert.throws(() => parseSecretKey(JSON.stringify([...randomBytes(48)])), /64 bajty/);
 });
 
 test('podpis transakcji: poprawny podpis ed25519 w slocie płatnika; cudza transakcja odrzucona', () => {

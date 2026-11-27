@@ -2,7 +2,7 @@
 
 Panel i silnik do prowadzenia **własnego** bota handlowego na Solanie i sieciach EVM (domyślnie Robinhood Chain):
 wybór tokena po adresie kontraktu lub linku, analiza dynamiki rynku (7 scenariuszy), strategia z limitami ryzyka,
-kolejka zleceń, statystyki w walucie sieci (SOL/ETH) i USD, dziennik ogłoszeń o transakcjach i monitoring — wszystko
+kolejka zleceń, statystyki w walucie sieci (SOL/ETH) i USD i monitoring — wszystko
 konfigurowalne z panelu.
 
 - **Tryb paper (domyślny):** symulowane wykonanie po bieżących cenach rynkowych, z prowizją, poślizgiem, opłatami sieci (i rentem na Solanie).
@@ -16,11 +16,11 @@ konfigurowalne z panelu.
 |---|---|---|---|---|
 | Solana | base58 (Pump.fun, zwykle kończy się na „pump”) | SOL | Jupiter Swap API | włączona |
 | Robinhood Chain (chain ID 4663) | `0x…` | ETH | LI.FI (pule Uniswap v4 i inne) | włączona |
-| Base, Ethereum, Arbitrum, BNB Smart Chain | `0x…` | ETH / BNB | LI.FI | wyłączone (System → Sieci EVM) |
+| Base, Ethereum, Arbitrum, BNB Smart Chain | `0x…` | ETH / BNB | LI.FI | wyłączone (Ustawienia → Sieci i połączenia) |
 
 Adres `0x…` jest szukany na włączonych sieciach EVM; wybierana jest ta, na której token ma największą płynność.
 Jeśli token jest na sieci wyłączonej lub nieskonfigurowanej, panel to wyświetli. Sieci (RPC, eksplorator, opłaty, rezerwa
-na gaz, allowlista kontraktów) edytujesz w zakładce **System → Sieci EVM** — można też dodać własną sieć EVM.
+na gaz, allowlista kontraktów) edytujesz w **Ustawienia → Sieci i połączenia** — można też dodać własną sieć EVM.
 
 Architektura, schemat bazy, maszyna stanów i koordynator: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -40,7 +40,7 @@ npm run build
 npm start
 ```
 
-Otwórz http://127.0.0.1:8787 — przy pierwszym uruchomieniu z localhost ustawisz hasło administratora.
+Otwórz http://127.0.0.1:8787 — panel nie ma hasła i działa tylko na komputerze, na którym jest uruchomiony.
 
 > **Windows / PowerShell:** jeśli pojawia się błąd „npm.ps1 cannot be loaded because running scripts is disabled”,
 > użyj `npm.cmd` zamiast `npm` (np. `npm.cmd start`) albo uruchom serwer bezpośrednio: `node server/src/index.ts`.
@@ -63,11 +63,11 @@ npm run typecheck
 
 ## Jak zacząć handlować (paper)
 
-1. **Session Control** → wklej adres kontraktu tokena; nazwa, symbol, cena i płynność pojawią się automatycznie.
-2. Wybierz dane (rzeczywiste / symulator), tryb **Paper** i kapitał symulacyjny → **Start**.
-3. Obserwuj **Overview** (wykres, wynik, operacje) i **Market Dynamics** (scenariusz i wskaźniki).
-4. Strojenie: **Trading Config** (kwoty, czasy, TP/SL/trailing, scenariusze wejścia/wyjścia, limity ryzyka, presety).
-5. **Pause / Resume / Stop** w Session Control; **EMERGENCY STOP** jest zawsze na górnym pasku.
+1. **Start** → wklej adres kontraktu tokena; otworzy się podgląd z ceną, wykresem i analizą rynku.
+2. Ustaw zachowanie bota, wybierz tryb **Paper** i kapitał symulacyjny → **Uruchom bota**. „Wyjdź” na dole wraca do wyboru tokena.
+3. Obserwuj zakładkę **Start** (wykres, wynik, operacje, sterowanie) i **Ustawienia → Analiza rynku** (scenariusz i wskaźniki).
+4. Strojenie: **Ustawienia → Strategia** i **Ryzyko** (kwoty, czasy, TP/SL/trailing, scenariusze wejścia/wyjścia, limity ryzyka, presety).
+5. **Wstrzymaj / Wznów / Zakończ / Emergency stop** — w zakładce Start, panel „Sterowanie sesją”.
 
 Każda transakcja wynika z reguły strategii (`strategy:…`) albo z polecenia z panelu (`manual:…`) — powód jest zapisany
 przy zleceniu, transakcji i pozycji.
@@ -77,7 +77,7 @@ przy zleceniu, transakcji i pozycji.
 Włączenie wymaga trzech świadomych kroków:
 
 1. W `.env` ustaw `LIVE_TRADING_ENABLED=true` i zrestartuj serwer.
-2. **Konto i portfel** → dodaj klucz prywatny portfela (szyfrowany AES-256-GCM; adres portfela ustawi się sam):
+2. **Konta** → dodaj klucz prywatny portfela (szyfrowany AES-256-GCM; adres portfela ustawi się sam):
    dla Solany „Klucz prywatny portfela”, dla Robinhood Chain i innych sieci EVM „Klucz prywatny portfela EVM”
    (64 znaki hex). Najlepiej użyj osobnego portfela tylko z kwotą przeznaczoną na bota.
 3. Przy starcie sesji wybierz tryb Live i wpisz frazę potwierdzającą `HANDEL LIVE`.
@@ -86,7 +86,7 @@ Zanim użyjesz prawdziwych pieniędzy:
 
 - **Koszty przy małym kapitale są wysokie.** Pierwszy zakup tokena tworzy konto tokena (rent ≈ 0,002 SOL), do tego prowizja
   platformy (~1% w każdą stronę), poślizg i opłaty sieci. Przy 1–2 USD kapitału sam rent to 10–20% kapitału —
-  zakładka Trading Config pokazuje szacunek kosztu pełnego cyklu dla Twoich kwot.
+  Ustawienia → Strategia pokazują szacunek kosztu pełnego cyklu dla Twoich kwot.
 - Wykonanie live (quote → swap → podpis → potwierdzenie → odczyt faktycznych kwot z transakcji) jest zaimplementowane
   i pokryte testami podpisu, ale **nie było testowane na mainnecie** w tym projekcie. Zacznij od minimalnych kwot
   i sprawdź pierwsze transakcje w Solscan.
@@ -95,29 +95,19 @@ Zanim użyjesz prawdziwych pieniędzy:
   musi być na allowliście sieci (domyślnie kontrakt LI.FI). Sprzedaż zatwierdza dokładnie sprzedawaną ilość tokena,
   nigdy nieograniczoną. Faktyczne kwoty i gaz są odczytywane z sald portfela przed i po bloku transakcji.
   Wykonanie EVM jest pokryte testami jednostkowymi i sprawdzone na prawdziwych wycenach LI.FI, ale **nie wysłano nim
-  prawdziwej transakcji** — zacznij od minimalnych kwot. Bez klucza API LI.FI obowiązują limity zapytań (klucz można dodać w zakładce Konto).
-- Publiczny RPC (`api.mainnet-beta.solana.com`) ma limity — do live użyj prywatnego RPC (URL zapisujesz jako sekret w zakładce Konto).
+  prawdziwej transakcji** — zacznij od minimalnych kwot. Bez klucza API LI.FI obowiązują limity zapytań (klucz można dodać w zakładce Konta).
+- Publiczny RPC (`api.mainnet-beta.solana.com`) ma limity — do live użyj prywatnego RPC (URL zapisujesz jako sekret w zakładce Konta).
 - Wynik live liczony jest od salda SOL portfela na starcie sesji — wpłaty/wypłaty w trakcie sesji zaburzą PNL.
-
-### Kilka portfeli (jedna pozycja na portfel)
-
-**Konto i portfel → Portfele handlowe → Dodaj portfel** (nowy albo import klucza) dodaje portfele, z których bot otwiera
-pozycje obok portfela głównego. W **Trading Config → Maks. pozycji na jeden portfel** ustaw `1`, a „Maks. liczba otwartych
-pozycji” na liczbę portfeli — wtedy każda pozycja idzie z osobnego portfela (np. 2 portfele = 2 pozycje naraz, każda na innym).
-Bot wybiera najmniej zajęty portfel z wystarczającym saldem; sprzedaż zawsze idzie z portfela, który pozycję otworzył.
-Kapitał sesji live to suma sald wszystkich portfeli danej sieci. Dodawanie, włączanie/wyłączanie i usuwanie portfeli
-jest możliwe tylko poza sesją live; usunięty portfel trafia do archiwum (klucz zostaje). W trybie paper limit działa tak
-samo (do testów), ale saldo symulacyjne jest wspólne.
 
 ## Wdrożenie na serwer (24/7)
 
-**Docker + HTTPS (zalecane):**
+> **Panel nie ma hasła**, więc odpowiada wyłącznie na połączenia z tego samego komputera (127.0.0.1 / localhost).
+> Wystawienie go przez domenę, reverse proxy (Caddy) lub Dockera z publicznym portem **nie zadziała** — serwer odrzuci takie
+> połączenia. Na serwerze zdalnym uruchom aplikację normalnie (systemd poniżej) i łącz się przez tunel SSH:
+> `ssh -L 8787:127.0.0.1:8787 użytkownik@serwer`, a potem otwórz u siebie http://127.0.0.1:8787.
 
-1. Skopiuj `.env.example` → `.env`, ustaw `ADMIN_PASSWORD` i `MASTER_KEY` (kopię `MASTER_KEY` trzymaj poza serwerem).
-2. W `deploy/Caddyfile` wpisz swoją domenę (rekord DNS A → IP serwera).
-3. `docker compose up -d --build` — aplikacja restartuje się automatycznie po awarii, Caddy wystawia certyfikat TLS.
-
-**Bez Dockera:** `deploy/soldesk.service` (systemd, `Restart=always`, ograniczone uprawnienia) + dowolny reverse proxy z HTTPS.
+**Serwer (systemd):** `deploy/soldesk.service` (`Restart=always`, ograniczone uprawnienia), `HOST=127.0.0.1`, dostęp przez tunel SSH.
+Skopiuj `.env.example` → `.env` i ustaw `MASTER_KEY` (kopię trzymaj poza serwerem).
 
 Odporność: stan w SQLite (WAL); po restarcie aktywna sesja wraca jako **wstrzymana** (chyba że włączysz
 „Wznawiaj sesję po restarcie”), zlecenia przerwane w trakcie są uzgadniane z siecią po podpisie transakcji.
@@ -141,24 +131,19 @@ Zmierzone lokalnie: ~100 MB RAM, CPU bliskie 0% przy jednej sesji.
 
 ## Bezpieczeństwo
 
-- Logowanie hasłem (scrypt), sesja w ciasteczku `HttpOnly; SameSite=Strict` (+ `Secure` za HTTPS), limit prób logowania,
-  ochrona CSRF nagłówkiem, nagłówki bezpieczeństwa (CSP, X-Frame-Options).
-- Sekrety (klucz portfela, prywatny URL RPC) szyfrowane AES-256-GCM kluczem głównym spoza bazy; podgląd wymaga ponownego
-  podania hasła i jest odnotowywany w logu (bez wartości). Logi przechodzą redakcję kluczy, haseł i parametrów `api-key`.
-- Panel domyślnie nasłuchuje tylko na `127.0.0.1`; na serwerze wystawiaj go wyłącznie przez HTTPS.
-
-## Ogłoszenia (Callout Manager)
-
-Szablony z zmiennymi (`{symbol}`, `{buy_price}`, `{pnl_usd}`…), kategorie, import hurtowy, częstotliwość i zdarzenia
-wyzwalające, kolejka zatwierdzeń. Ogłoszenia powstają tylko z faktycznie wykonanych transakcji, zawsze z etykietą
-treści automatycznej. Moduł niczego nie publikuje na zewnątrz — zatwierdzoną treść kopiujesz sam.
+- **Bez hasła:** kto ma dostęp do komputera z uruchomionym panelem, ma pełny dostęp do bota i portfela (w tym podglądu klucza).
+  Dlatego serwer przyjmuje wyłącznie połączenia z 127.0.0.1 z adresem `localhost`/`127.0.0.1` (ochrona przed obcymi stronami
+  podszywającymi się pod localhost — DNS rebinding), a zmiany stanu wymagają własnego nagłówka (ochrona CSRF).
+  Nagłówki bezpieczeństwa: CSP, X-Frame-Options.
+- Sekrety (klucz portfela, prywatny URL RPC) szyfrowane AES-256-GCM kluczem głównym spoza bazy; każdy podgląd jest
+  odnotowywany w logu (bez wartości). Logi przechodzą redakcję kluczy i parametrów `api-key`.
 
 ## Rozbudowa
 
 - Nowa strategia: funkcje `evaluateEntry` / `evaluateExit` w `server/src/engine/strategy.ts` (czyste funkcje, łatwe do testów).
 - Nowe źródło danych: interfejs `MarketProvider` (`server/src/market/provider.ts`).
 - Nowy sposób wykonania: interfejs `Executor` (`server/src/execution/executor.ts`).
-- Nowa sieć EVM: wpis w System → Sieci EVM (bez zmian w kodzie); logika sieci w `server/src/chains/chainRegistry.ts`.
+- Nowa sieć EVM: wpis w Ustawienia → Sieci i połączenia (bez zmian w kodzie); logika sieci w `server/src/chains/chainRegistry.ts`.
 - Nowe ustawienie: schemat w `server/src/config/schema.ts` + pole w odpowiednim formularzu panelu.
 - Migracje bazy: dopisz kolejny element w `server/src/db/migrations.ts`.
 
@@ -170,4 +155,4 @@ treści automatycznej. Moduł niczego nie publikuje na zewnątrz — zatwierdzon
 - Wykonanie live zależy od tras agregatora: na Solanie od Jupitera, na sieciach EVM od LI.FI. Tokeny, dla których
   agregator nie ma trasy (np. przed migracją z krzywej bondingowej do DEX), nie dostaną wyceny — zlecenie zakończy się błędem.
 - Ceny z DexScreener mają ograniczoną precyzję (ok. 4 cyfry znaczące) — wpływa to na dokładność wyceny w trybie paper.
-- Adres Jupiter API (`lite-api.jup.ag`) może się zmienić — da się go podmienić w zakładce System.
+- Adres Jupiter API (`lite-api.jup.ag`) może się zmienić — da się go podmienić w Ustawienia → Sieci i połączenia.

@@ -29,6 +29,15 @@ export function evaluateEntry(ctx: {
     return { action: 'skip', reason: `scenariusz ${analysis.scenario} poza listą wejść` };
   }
   if (analysis.confidence < cfg.minConfidence) return { action: 'skip', reason: 'zbyt niska pewność klasyfikacji' };
+  if (cfg.minVolumeRatio > 0 && analysis.metrics.volumeRatio < cfg.minVolumeRatio) {
+    return { action: 'skip', reason: `wolumen ×${analysis.metrics.volumeRatio.toFixed(2)} poniżej progu ×${cfg.minVolumeRatio}` };
+  }
+  if (cfg.minBuySellRatio > 0) {
+    const ratio = snapshot.buys5m / Math.max(1, snapshot.sells5m);
+    if (snapshot.buys5m === 0 || ratio < cfg.minBuySellRatio) {
+      return { action: 'skip', reason: `kupna/sprzedaże ${snapshot.buys5m}/${snapshot.sells5m} poniżej progu ×${cfg.minBuySellRatio}` };
+    }
+  }
   const rng = ctx.rng ?? Math.random;
   const usd =
     cfg.tradeSizing === 'fixed'

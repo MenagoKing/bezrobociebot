@@ -25,8 +25,8 @@ export class ChainRegistry {
   /** Konfiguracja włączonej sieci EVM albo błąd czytelny dla użytkownika. */
   evm(chain: string): EvmChainConfig {
     const cfg = this.evmConfig(chain);
-    if (!cfg) throw new UserError(`Sieć „${chain}” nie jest skonfigurowana (System → Sieci EVM)`);
-    if (!cfg.enabled) throw new UserError(`Sieć ${cfg.name} jest wyłączona (System → Sieci EVM)`);
+    if (!cfg) throw new UserError(`Sieć „${chain}” nie jest skonfigurowana (Ustawienia → Sieci i połączenia)`);
+    if (!cfg.enabled) throw new UserError(`Sieć ${cfg.name} jest wyłączona (Ustawienia → Sieci i połączenia)`);
     return cfg;
   }
 
@@ -52,8 +52,8 @@ export class ChainRegistry {
   }
 
   /** Rent za konto tokena przy pierwszym zakupie — istnieje tylko na Solanie. */
-  firstBuyRent(session: SessionRecord, firstBuyOnWallet: boolean): number {
-    if (!this.isSolana(session.chain) || !firstBuyOnWallet) return 0;
+  firstBuyRent(session: SessionRecord): number {
+    if (!this.isSolana(session.chain) || session.rentPaidSol > 0) return 0;
     return this.settings.get().trading.paperAtaRentSol;
   }
 

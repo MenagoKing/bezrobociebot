@@ -1,9 +1,6 @@
 import type {
   AccountProfile,
   ArchivedWallet,
-  Callout,
-  CalloutEvent,
-  CalloutTemplate,
   DataSource,
   EquityPoint,
   ErrorEntry,
@@ -19,7 +16,6 @@ import type {
   SessionStatus,
   TokenInfo,
   Trade,
-  TradingWallet,
   WalletKind,
 } from '../../../shared/types.ts';
 import type { Db } from './database.ts';
@@ -55,22 +51,10 @@ function mapSession(r: Row): SessionRecord {
   };
 }
 
-function mapTradingWallet(r: Row): TradingWallet {
-  return {
-    id: Number(r.id),
-    kind: r.kind as WalletKind,
-    label: String(r.label),
-    address: String(r.address),
-    enabled: Number(r.enabled) === 1,
-    createdAt: Number(r.created_at),
-  };
-}
-
 function mapPosition(r: Row): Position {
   return {
     id: Number(r.id),
     sessionId: Number(r.session_id),
-    walletId: Number(r.wallet_id ?? 0),
     status: r.status as Position['status'],
     openedAt: Number(r.opened_at),
     closedAt: n(r.closed_at),
@@ -118,7 +102,6 @@ function mapOrder(r: Row): Order {
   return {
     id: Number(r.id),
     sessionId: Number(r.session_id),
-    walletId: Number(r.wallet_id ?? 0),
     side: r.side as OrderSide,
     valueSol: n(r.value_sol),
     positionId: n(r.position_id),
@@ -130,33 +113,6 @@ function mapOrder(r: Row): Order {
     tradeId: n(r.trade_id),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
-  };
-}
-
-function mapTemplate(r: Row): CalloutTemplate {
-  return {
-    id: Number(r.id),
-    name: String(r.name),
-    category: String(r.category),
-    event: r.event as CalloutEvent,
-    body: String(r.body),
-    enabled: Number(r.enabled) === 1,
-    weight: Number(r.weight),
-    createdAt: Number(r.created_at),
-  };
-}
-
-function mapCallout(r: Row): Callout {
-  return {
-    id: Number(r.id),
-    templateId: n(r.template_id),
-    sessionId: n(r.session_id),
-    tradeId: n(r.trade_id),
-    event: r.event as CalloutEvent,
-    body: String(r.body),
-    status: r.status as Callout['status'],
-    createdAt: Number(r.created_at),
-    decidedAt: n(r.decided_at),
   };
 }
 
@@ -326,65 +282,6 @@ export class Repository {
     this.db.run('DELETE FROM wallet_archive WHERE kind = ? AND lower(address) = lower(?)', kind, address);
   }
 
-  // ---------- dodatkowe portfele handlowe ----------
-  createTradingWallet(w: { kind: WalletKind; label: string; address: string; ciphertext: string }): TradingWallet {
-    const r = this.db.run(
-      'INSERT INTO trading_wallets (kind, label, address, ciphertext, enabled, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-      w.kind,
-      w.label,
-      w.address,
-      w.ciphertext,
-      Date.now(),
-    );
-    return this.getTradingWallet(Number(r.lastInsertRowid))!;
-  }
-
-  listTradingWallets(kind?: WalletKind): TradingWallet[] {
-    const rows = kind
-      ? this.db.all<Row>('SELECT * FROM trading_wallets WHERE kind = ? ORDER BY id', kind)
-      : this.db.all<Row>('SELECT * FROM trading_wallets ORDER BY id');
-    return rows.map(mapTradingWallet);
-  }
-
-  getTradingWallet(id: number): TradingWallet | null {
-    const r = this.db.get<Row>('SELECT * FROM trading_wallets WHERE id = ?', id);
-    return r ? mapTradingWallet(r) : null;
-  }
-
-  getTradingWalletCiphertext(id: number): string | null {
-    return s(this.db.get<Row>('SELECT ciphertext FROM trading_wallets WHERE id = ?', id)?.ciphertext);
-  }
-
-  findTradingWalletByAddress(kind: WalletKind, address: string): TradingWallet | null {
-    const r = this.db.get<Row>('SELECT * FROM trading_wallets WHERE kind = ? AND lower(address) = lower(?)', kind, address);
-    return r ? mapTradingWallet(r) : null;
-  }
-
-  updateTradingWallet(id: number, f: { label?: string; enabled?: boolean }): void {
-    if (f.label !== undefined) this.db.run('UPDATE trading_wallets SET label = ? WHERE id = ?', f.label, id);
-    if (f.enabled !== undefined) this.db.run('UPDATE trading_wallets SET enabled = ? WHERE id = ?', f.enabled ? 1 : 0, id);
-  }
-
-  deleteTradingWallet(id: number): void {
-    this.db.run('DELETE FROM trading_wallets WHERE id = ?', id);
-  }
-
-  /** Otwarte pozycje na portfelu we wszystkich aktywnych sesjach (blokuje usunięcie portfela). */
-  countOpenPositionsOnWallet(walletId: number): number {
-    return Number(
-      this.db.get<Row>(
-        `SELECT COUNT(*) AS c FROM positions p JOIN sessions s ON s.id = p.session_id
-         WHERE p.wallet_id = ? AND p.status = 'open' AND s.status IN ${ACTIVE_STATUSES}`,
-        walletId,
-      )!.c,
-    );
-  }
-
-  /** Czy portfel miał już pozycję w sesji (na Solanie pierwszy zakup tworzy konto tokena = rent). */
-  walletHasPosition(sessionId: number, walletId: number): boolean {
-    return !!this.db.get<Row>('SELECT 1 AS x FROM positions WHERE session_id = ? AND wallet_id = ? LIMIT 1', sessionId, walletId);
-  }
-
   listSecretMeta(): { name: string; updatedAt: number }[] {
     return this.db
       .all<Row>('SELECT name, updated_at FROM secrets')
@@ -463,10 +360,9 @@ export class Repository {
   // ---------- positions ----------
   createPosition(p: Omit<Position, 'id' | 'closedAt' | 'exitPriceSol' | 'exitPriceUsd' | 'proceedsSol' | 'realizedPnlSol' | 'realizedPnlUsd' | 'exitReason' | 'status'>): Position {
     const { lastInsertRowid } = this.db.run(
-      `INSERT INTO positions (session_id, wallet_id, status, opened_at, amount, decimals, entry_price_sol, entry_price_usd,
-        cost_sol, peak_price_sol, fees_sol) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO positions (session_id, status, opened_at, amount, decimals, entry_price_sol, entry_price_usd,
+        cost_sol, peak_price_sol, fees_sol) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
       p.sessionId,
-      p.walletId,
       p.openedAt,
       p.amount,
       p.decimals,
@@ -554,21 +450,12 @@ export class Repository {
   }
 
   // ---------- orders ----------
-  createOrder(o: {
-    sessionId: number;
-    walletId: number;
-    side: OrderSide;
-    valueSol: number | null;
-    positionId: number | null;
-    reason: string;
-    priority?: number;
-  }): Order {
+  createOrder(o: { sessionId: number; side: OrderSide; valueSol: number | null; positionId: number | null; reason: string; priority?: number }): Order {
     const now = Date.now();
     const { lastInsertRowid } = this.db.run(
-      `INSERT INTO orders (session_id, wallet_id, side, value_sol, position_id, reason, priority, status, next_attempt_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      `INSERT INTO orders (session_id, side, value_sol, position_id, reason, priority, status, next_attempt_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
       o.sessionId,
-      o.walletId,
       o.side,
       o.valueSol,
       o.positionId,
@@ -653,93 +540,6 @@ export class Repository {
       equitySol: Number(r.equity_sol),
       equityUsd: Number(r.equity_usd),
     }));
-  }
-
-  // ---------- callouts ----------
-  listTemplates(): CalloutTemplate[] {
-    return this.db.all<Row>('SELECT * FROM callout_templates ORDER BY category, name').map(mapTemplate);
-  }
-
-  getTemplate(id: number): CalloutTemplate | null {
-    const r = this.db.get<Row>('SELECT * FROM callout_templates WHERE id = ?', id);
-    return r ? mapTemplate(r) : null;
-  }
-
-  createTemplate(t: Omit<CalloutTemplate, 'id' | 'createdAt'>): CalloutTemplate {
-    const { lastInsertRowid } = this.db.run(
-      'INSERT INTO callout_templates (name, category, event, body, enabled, weight, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      t.name,
-      t.category,
-      t.event,
-      t.body,
-      t.enabled,
-      t.weight,
-      Date.now(),
-    );
-    return this.getTemplate(lastInsertRowid)!;
-  }
-
-  updateTemplate(id: number, t: Omit<CalloutTemplate, 'id' | 'createdAt'>): CalloutTemplate | null {
-    this.db.run(
-      'UPDATE callout_templates SET name = ?, category = ?, event = ?, body = ?, enabled = ?, weight = ? WHERE id = ?',
-      t.name,
-      t.category,
-      t.event,
-      t.body,
-      t.enabled,
-      t.weight,
-      id,
-    );
-    return this.getTemplate(id);
-  }
-
-  deleteTemplate(id: number): void {
-    this.db.run('DELETE FROM callout_templates WHERE id = ?', id);
-  }
-
-  countTemplates(): number {
-    return Number(this.db.get<Row>('SELECT COUNT(*) AS c FROM callout_templates')!.c);
-  }
-
-  insertCallout(c: Omit<Callout, 'id' | 'createdAt' | 'decidedAt'>): Callout {
-    const now = Date.now();
-    const { lastInsertRowid } = this.db.run(
-      'INSERT INTO callouts (template_id, session_id, trade_id, event, body, status, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      c.templateId,
-      c.sessionId,
-      c.tradeId,
-      c.event,
-      c.body,
-      c.status,
-      now,
-      c.status === 'pending' ? null : now,
-    );
-    return this.getCallout(lastInsertRowid)!;
-  }
-
-  getCallout(id: number): Callout | null {
-    const r = this.db.get<Row>('SELECT * FROM callouts WHERE id = ?', id);
-    return r ? mapCallout(r) : null;
-  }
-
-  listCallouts(q: { status?: Callout['status']; limit?: number } = {}): Callout[] {
-    const rows = q.status
-      ? this.db.all<Row>('SELECT * FROM callouts WHERE status = ? ORDER BY id DESC LIMIT ?', q.status, q.limit ?? 200)
-      : this.db.all<Row>('SELECT * FROM callouts ORDER BY id DESC LIMIT ?', q.limit ?? 200);
-    return rows.map(mapCallout);
-  }
-
-  setCalloutStatus(id: number, status: Callout['status'], body?: string): Callout | null {
-    if (body !== undefined) {
-      this.db.run('UPDATE callouts SET status = ?, body = ?, decided_at = ? WHERE id = ?', status, body, Date.now(), id);
-    } else {
-      this.db.run('UPDATE callouts SET status = ?, decided_at = ? WHERE id = ?', status, Date.now(), id);
-    }
-    return this.getCallout(id);
-  }
-
-  lastCalloutAt(event: CalloutEvent): number | null {
-    return n(this.db.get<Row>('SELECT MAX(created_at) AS t FROM callouts WHERE event = ?', event)?.t);
   }
 
   // ---------- errors ----------

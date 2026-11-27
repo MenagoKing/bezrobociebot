@@ -3,14 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { CALLOUT_EVENTS, type AppStateSnapshot, type SettingsSection, type Trade } from '../../../shared/types.ts';
+import { type AppStateSnapshot, type SettingsSection, type Trade } from '../../../shared/types.ts';
 import type { AppContext } from '../app.ts';
 import { DEFAULT_SETTINGS, formatZodError } from '../config/schema.ts';
 import { LIVE_CONFIRM_PHRASE } from '../coordinator/coordinator.ts';
+import { openExternal } from '../core/openExternal.ts';
+import { CHART_TFS } from '../market/chartCandles.ts';
 import { UserError } from '../core/util.ts';
-import { TEMPLATE_VARIABLES } from '../services/calloutService.ts';
 import { WALLET_SECRETS } from '../services/accountService.ts';
-import { COOKIE, isLoopback, readCookie, setSessionCookie } from './server.ts';
 
 function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T> {
   const r = schema.safeParse(data ?? {});
@@ -40,44 +40,7 @@ function panelBuildId(webDist: string): string {
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   const buildId = panelBuildId(ctx.env.webDist);
-  const { auth, coordinator, repo, settings, market, stats, callouts, account, wallet, health, backup, engine, queue } = ctx;
-
-  // ---------- auth ----------
-  app.get('/api/auth/status', async (req) => ({
-    authenticated: auth.validate(readCookie(req, COOKIE)),
-    setupRequired: auth.isSetupRequired(),
-    setupAllowed: auth.isSetupRequired() && isLoopback(req),
-  }));
-
-  app.post('/api/auth/setup', async (req, reply) => {
-    if (!isLoopback(req)) throw new UserError('Pierwsze ustawienie hasła jest możliwe tylko lokalnie (lub przez ADMIN_PASSWORD w .env)', 403);
-    const { password } = parse(z.object({ password: z.string() }), req.body);
-    await auth.setup(password);
-    const session = await auth.login(password, req.ip);
-    setSessionCookie(ctx, reply, session.token, Math.floor((session.expiresAt - Date.now()) / 1000));
-    return { ok: true };
-  });
-
-  app.post('/api/auth/login', async (req, reply) => {
-    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
-    const session = await auth.login(password, req.ip);
-    setSessionCookie(ctx, reply, session.token, Math.floor((session.expiresAt - Date.now()) / 1000));
-    return { ok: true };
-  });
-
-  app.post('/api/auth/logout', async (req, reply) => {
-    auth.logout(readCookie(req, COOKIE));
-    setSessionCookie(ctx, reply, '', 0);
-    return { ok: true };
-  });
-
-  app.post('/api/auth/change-password', async (req, reply) => {
-    const b = parse(z.object({ current: z.string(), next: z.string() }), req.body);
-    await auth.changePassword(b.current, b.next, req.ip);
-    const session = await auth.login(b.next, req.ip);
-    setSessionCookie(ctx, reply, session.token, Math.floor((session.expiresAt - Date.now()) / 1000));
-    return { ok: true };
-  });
+  const { coordinator, repo, settings, market, stats, account, wallet, health, backup, engine, queue } = ctx;
 
   app.get('/api/health', async () => ({ ok: true, uptimeSec: Math.round(process.uptime()) }));
 
@@ -93,7 +56,6 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       positions: session ? stats.withMarks(repo.listOpenPositions(session.id), market.snapshot?.priceSol, solUsd) : [],
       trades: repo.listTrades({ limit: 100 }),
       orders: session ? repo.listOrders({ sessionId: session.id, limit: 50 }) : [],
-      callouts: repo.listCallouts({ limit: 100 }),
       stats: coordinator.currentStats(),
       wallet: wallet.state,
       health: health.current,
@@ -105,8 +67,33 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   // ---------- token / sesja ----------
   app.get('/api/token/resolve', async (req) => {
-    const q = parse(z.object({ address: z.string().min(1), source: z.enum(['live', 'simulated']).default('live') }), req.query);
+    const q = parse(z.object({ address: z.string().min(1), source: z.enum(['live']).default('live') }), req.query);
     return market.resolve(q.address, q.source);
+  });
+  app.get('/api/token/search', async (req) => {
+    const q = parse(z.object({ q: z.string().trim().min(2).max(80) }), req.query);
+    return market.search(q.q);
+  });
+  app.get('/api/token/preview', async (req) => {
+    const q = parse(z.object({ address: z.string().min(1), source: z.enum(['live']).default('live') }), req.query);
+    return market.preview(q.address, q.source);
+  });
+
+  // linki do pump.fun / GMGN / eksploratorów otwierane w przeglądarce systemu, nie w panelu
+  app.post('/api/open-external', async (req) => {
+    const b = parse(z.object({ url: z.string().url().max(2000) }), req.body);
+    const u = new URL(b.url);
+    if (u.protocol !== 'https:') throw new UserError('Można otwierać tylko linki https');
+    await openExternal(u.toString());
+    return { ok: true };
+  });
+
+  app.get('/api/token/candles', async (req) => {
+    const q = parse(
+      z.object({ address: z.string().min(1), tf: z.coerce.number().int().refine((v) => (CHART_TFS as readonly number[]).includes(v), 'nieobsługiwany interwał') }),
+      req.query,
+    );
+    return market.chartCandles(q.address, q.tf);
   });
 
   app.post('/api/session/start', async (req) => {
@@ -114,7 +101,8 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       z.object({
         tokenAddress: z.string().min(1),
         mode: z.enum(['paper', 'live']),
-        dataSource: z.enum(['live', 'simulated']),
+        // aplikacja produkcyjna: tylko prawdziwe dane rynkowe (symulator rynku służy wyłącznie testom automatycznym)
+        dataSource: z.enum(['live']).default('live'),
         startingCapitalUsd: z.number().positive().optional(),
         confirmPhrase: z.string().optional(),
       }),
@@ -241,29 +229,6 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
   app.get('/api/stats/current', async () => coordinator.currentStats());
 
-  // ---------- callouts ----------
-  app.get('/api/callouts/templates', async () => repo.listTemplates());
-  app.post('/api/callouts/templates', async (req) => callouts.createTemplate(req.body));
-  app.put('/api/callouts/templates/:id', async (req) => callouts.updateTemplate(parse(idParam, req.params).id, req.body));
-  app.delete('/api/callouts/templates/:id', async (req) => {
-    callouts.deleteTemplate(parse(idParam, req.params).id);
-    return { ok: true };
-  });
-  app.post('/api/callouts/templates/import', async (req) => callouts.importTemplates(parse(z.object({ text: z.string().max(1_000_000) }), req.body).text));
-  app.post('/api/callouts/preview', async (req) => {
-    const b = parse(z.object({ body: z.string().max(1000), event: z.enum(CALLOUT_EVENTS) }), req.body);
-    return callouts.preview(b.body, b.event);
-  });
-  app.get('/api/callouts/variables', async () => TEMPLATE_VARIABLES);
-  app.get('/api/callouts', async (req) => {
-    const q = parse(z.object({ status: z.enum(['pending', 'approved', 'rejected']).optional() }), req.query);
-    return repo.listCallouts({ status: q.status, limit: 300 });
-  });
-  app.post('/api/callouts/:id/approve', async (req) => {
-    const b = parse(z.object({ body: z.string().max(1200).optional() }), req.body);
-    return callouts.decide(parse(idParam, req.params).id, 'approved', b.body);
-  });
-  app.post('/api/callouts/:id/reject', async (req) => callouts.decide(parse(idParam, req.params).id, 'rejected'));
 
   // ---------- konto i portfel ----------
   app.get('/api/account', async () => account.get());
@@ -283,9 +248,8 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   };
   app.post('/api/account/secrets/:name/delete', async (req) => {
     const { name } = req.params as { name: string };
-    const { password } = parse(z.object({ password: z.string().optional() }), req.body);
     if (WALLET_SECRETS.includes(name)) assertNoLiveSession();
-    const updated = await account.deleteSecret(name, password, req.ip);
+    const updated = await account.deleteSecret(name);
     void wallet.refresh();
     return updated;
   });
@@ -303,61 +267,23 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         source: z.enum(['generate', 'import', 'archive']),
         privateKey: z.string().max(4096).optional(),
         archiveId: z.number().int().positive().optional(),
-        password: z.string().min(1, 'Podaj hasło administratora'),
       }),
       req.body,
     );
     assertNoLiveSession();
-    const result = await account.changeWallet(input, req.ip);
+    const result = await account.changeWallet(input);
     await wallet.refresh();
     return result;
   });
   app.post('/api/account/wallet-archive/:id/reveal', async (req) => {
-    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
-    return { value: await account.revealArchived(parse(idParam, req.params).id, password, req.ip) };
+    return { value: await account.revealArchived(parse(idParam, req.params).id) };
   });
   app.post('/api/account/wallet-archive/:id/delete', async (req) => {
-    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
-    return account.deleteArchived(parse(idParam, req.params).id, password, req.ip);
-  });
-  // dodatkowe portfele handlowe — zmiany zbioru portfeli tylko poza sesją live (kapitał sesji = suma ich sald)
-  app.post('/api/account/trading-wallets', async (req) => {
-    const input = parse(
-      z.object({
-        kind: z.enum(['solana', 'evm']),
-        source: z.enum(['generate', 'import']),
-        privateKey: z.string().max(4096).optional(),
-        label: z.string().max(40).optional(),
-      }),
-      req.body,
-    );
-    assertNoLiveSession();
-    const result = account.addTradingWallet(input);
-    await wallet.refresh();
-    return result;
-  });
-  app.post('/api/account/trading-wallets/:id', async (req) => {
-    const patch = parse(z.object({ label: z.string().max(40).optional(), enabled: z.boolean().optional() }), req.body);
-    if (patch.enabled !== undefined) assertNoLiveSession();
-    const updated = account.updateTradingWallet(parse(idParam, req.params).id, patch);
-    void wallet.refresh();
-    return updated;
-  });
-  app.post('/api/account/trading-wallets/:id/reveal', async (req) => {
-    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
-    return { value: await account.revealTradingWallet(parse(idParam, req.params).id, password, req.ip) };
-  });
-  app.post('/api/account/trading-wallets/:id/delete', async (req) => {
-    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
-    assertNoLiveSession();
-    const updated = await account.removeTradingWallet(parse(idParam, req.params).id, password, req.ip);
-    void wallet.refresh();
-    return updated;
+    return account.deleteArchived(parse(idParam, req.params).id);
   });
   app.post('/api/account/secrets/:name/reveal', async (req: FastifyRequest) => {
     const { name } = req.params as { name: string };
-    const { password } = parse(z.object({ password: z.string().min(1) }), req.body);
-    return { value: await account.reveal(name, password, req.ip) };
+    return { value: await account.reveal(name) };
   });
   app.post('/api/account/check', async () => account.checkStatus(ctx.rpc));
   app.get('/api/wallet', async () => wallet.state);

@@ -1,9 +1,10 @@
-import { CALLOUT_EVENT_LABELS, type Callout, type MarketAnalysis, type Position, type Trade } from '../../../shared/types.ts';
+import { useState } from 'react';
+import { type MarketAnalysis, type Position, type Trade } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { fmtAgo, fmtCompact, fmtPct, fmtPrice, fmtSol, fmtTime, fmtUsd, pnlClass, reasonLabel, shortAddr } from '../format.ts';
-import { ActionButton, Badge, DataTable, Empty, ScenarioBadge, useNow } from './ui.tsx';
+import { ActionButton, Badge, ConfirmModal, DataTable, Empty, ScenarioBadge, useNow } from './ui.tsx';
 import { txUrl } from '../chains.ts';
-import { useStore } from '../store.ts';
+import { ExtLink } from './ExtLink.tsx';
 
 export function TradesTable({ trades, maxHeight }: { trades: Trade[]; maxHeight?: number }) {
   return (
@@ -28,9 +29,9 @@ export function TradesTable({ trades, maxHeight }: { trades: Trade[]; maxHeight?
           label: 'Tx',
           render: (t) =>
             t.txSignature ? (
-              <a href={txUrl(t.chain, t.txSignature)} target="_blank" rel="noreferrer" className="mono">
+              <ExtLink href={txUrl(t.chain, t.txSignature)} className="mono">
                 {shortAddr(t.txSignature, 5)}
-              </a>
+              </ExtLink>
             ) : (
               <span className="faint">{t.mode === 'paper' ? 'symulacja' : '—'}</span>
             ),
@@ -40,15 +41,26 @@ export function TradesTable({ trades, maxHeight }: { trades: Trade[]; maxHeight?
   );
 }
 
+/** „Sprzedaj wszystko” w nagłówku panelu otwartych pozycji — z potwierdzeniem. */
+export function SellAllButton({ count, disabled }: { count: number; disabled?: boolean }) {
+  const [confirm, setConfirm] = useState(false);
+  if (count === 0) return null;
+  return (
+    <>
+      <button className="btn btn-red btn-sm" disabled={disabled} onClick={() => setConfirm(true)}>
+        Sprzedaj wszystko
+      </button>
+      {confirm && (
+        <ConfirmModal title="Sprzedać wszystkie pozycje?" danger confirmLabel={`Sprzedaj wszystko (${count})`} onConfirm={() => api.post('/api/commands/sell-all')} onClose={() => setConfirm(false)}>
+          Zlecenia sprzedaży {count} pozycji trafią do kolejki natychmiast (ręczne polecenie pomija minimalny czas trzymania).
+        </ConfirmModal>
+      )}
+    </>
+  );
+}
+
 export function PositionsTable({ positions, allowSell, symbol = 'SOL' }: { positions: Position[]; allowSell?: boolean; symbol?: string }) {
   const now = useNow(1000);
-  const extra = useStore((s) => s.wallet.extra);
-  const showWallet = extra.length > 0 || positions.some((p) => p.walletId);
-  const walletLabel = (id: number) => {
-    if (!id) return 'główny';
-    const w = extra.find((x) => x.id === id);
-    return w ? w.label || shortAddr(w.address, 4) : `#${id}`;
-  };
   return (
     <DataTable
       rows={positions}
@@ -56,9 +68,6 @@ export function PositionsTable({ positions, allowSell, symbol = 'SOL' }: { posit
       empty="Brak otwartych pozycji"
       columns={[
         { key: 'id', label: '#', render: (p) => <span className="mono">{p.id}</span>, sort: (p) => p.id },
-        ...(showWallet
-          ? [{ key: 'wallet', label: 'Portfel', render: (p: Position) => <span className="small">{walletLabel(p.walletId)}</span>, sort: (p: Position) => p.walletId }]
-          : []),
         { key: 'opened', label: 'Otwarta', render: (p) => <span className="mono">{fmtTime(p.openedAt)}</span>, sort: (p) => p.openedAt },
         { key: 'held', label: 'Czas', render: (p) => <span className="mono">{fmtAgo(p.openedAt, p.closedAt ?? now).replace(' temu', '')}</span> },
         { key: 'amount', label: 'Ilość', className: 'num', render: (p) => fmtCompact(p.amount) },
@@ -100,27 +109,6 @@ export function PositionsTable({ positions, allowSell, symbol = 'SOL' }: { posit
           : []),
       ]}
     />
-  );
-}
-
-export function CalloutFeed({ callouts, limit = 30 }: { callouts: Callout[]; limit?: number }) {
-  const list = callouts.filter((c) => c.status !== 'rejected').slice(0, limit);
-  if (!list.length) return <Empty>Brak ogłoszeń — pojawią się po wykonanych transakcjach</Empty>;
-  return (
-    <div className="feed">
-      {list.map((c) => (
-        <div className="feed-item" key={c.id}>
-          <div className="spread">
-            <Badge tone={c.event === 'close_loss' ? 'red' : c.event === 'buy' || c.event === 'close_profit' ? 'green' : 'gray'}>{CALLOUT_EVENT_LABELS[c.event]}</Badge>
-            <span className="small faint">
-              {c.status === 'pending' ? <span className="warn-text">oczekuje · </span> : null}
-              {fmtTime(c.createdAt)}
-            </span>
-          </div>
-          <div>{c.body}</div>
-        </div>
-      ))}
-    </div>
   );
 }
 

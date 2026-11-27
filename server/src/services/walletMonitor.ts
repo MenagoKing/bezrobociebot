@@ -1,5 +1,5 @@
 import type { Hex } from 'viem';
-import { MAIN_WALLET_ID, SOLANA, type EvmWalletInfo, type ExtraWalletInfo, type WalletInfo } from '../../../shared/types.ts';
+import { SOLANA, type EvmWalletInfo, type WalletInfo } from '../../../shared/types.ts';
 import type { ChainRegistry } from '../chains/chainRegistry.ts';
 import type { SettingsService } from '../config/settingsService.ts';
 import type { ErrorMonitor } from '../core/errorMonitor.ts';
@@ -15,7 +15,7 @@ import type { AccountService } from './accountService.ts';
  * oraz saldo waluty natywnej i tokena na sieci EVM (sieć bieżącej sesji albo pierwsza włączona).
  */
 export class WalletMonitor {
-  state: WalletInfo = { address: null, solBalance: null, tokenBalance: null, tokenMint: null, solUsd: 0, updatedAt: null, error: null, evm: null, extra: [] };
+  state: WalletInfo = { address: null, solBalance: null, tokenBalance: null, tokenMint: null, solUsd: 0, updatedAt: null, error: null, evm: null };
   private timer: NodeJS.Timeout | null = null;
   private refreshing: Promise<void> | null = null;
 
@@ -77,7 +77,7 @@ export class WalletMonitor {
     return this.chains.enabledEvm()[0]?.key ?? null;
   }
 
-  private async solana(): Promise<Omit<WalletInfo, 'evm' | 'extra'>> {
+  private async solana(): Promise<Omit<WalletInfo, 'evm'>> {
     const address = this.account.get().walletAddress || null;
     const solUsd = await this.market.getNativeUsd(SOLANA);
     if (!address) return { address: null, solBalance: null, tokenBalance: null, tokenMint: null, solUsd, updatedAt: Date.now(), error: null };
@@ -118,65 +118,14 @@ export class WalletMonitor {
     }
   }
 
-  /** Dodatkowe portfele handlowe: Solana przez RPC, EVM na monitorowanej sieci. */
-  private async extras(): Promise<ExtraWalletInfo[]> {
-    const evmChain = this.evmChain();
-    const token = this.market.token;
-    const liveFeed = this.market.feed.source === 'live';
-    return Promise.all(
-      this.account.get().tradingWallets.map(async (w): Promise<ExtraWalletInfo> => {
-        const chain = w.kind === 'solana' ? SOLANA : evmChain;
-        const base: ExtraWalletInfo = {
-          id: w.id,
-          kind: w.kind,
-          label: w.label,
-          address: w.address,
-          chain: chain ?? '',
-          nativeSymbol: chain ? this.chains.nativeSymbol(chain) : 'ETH',
-          nativeBalance: null,
-          tokenBalance: null,
-          error: null,
-        };
-        if (!chain) return { ...base, error: 'brak włączonej sieci EVM' };
-        const withToken = !!token && token.chain === chain && liveFeed;
-        try {
-          if (w.kind === 'solana') {
-            const lamports = await this.rpc.getBalanceLamports(w.address);
-            const bal = withToken ? await this.rpc.getTokenBalance(w.address, token.address) : null;
-            return { ...base, nativeBalance: lamports / 1e9, tokenBalance: bal ? bal.ui : null };
-          }
-          const pub = this.evmClients.public(chain);
-          const wei = await pub.getBalance({ address: w.address as Hex });
-          let tokenBalance: number | null = null;
-          if (withToken) {
-            const [raw, dec] = await Promise.all([
-              pub.readContract({ address: token.address as Hex, abi: ERC20_ABI, functionName: 'balanceOf', args: [w.address as Hex] }),
-              pub.readContract({ address: token.address as Hex, abi: ERC20_ABI, functionName: 'decimals' }),
-            ]);
-            tokenBalance = Number(raw) / 10 ** Number(dec);
-          }
-          return { ...base, nativeBalance: Number(wei) / 1e18, tokenBalance };
-        } catch (err) {
-          this.errors.record('wallet.extra', err, { level: 'warn', throttleMs: 300_000 });
-          const prev = this.state.extra.find((x) => x.id === w.id && x.chain === chain);
-          return { ...base, nativeBalance: prev?.nativeBalance ?? null, error: errorMessage(err) };
-        }
-      }),
-    );
-  }
-
   private async doRefresh(): Promise<void> {
-    const [sol, evm, extra] = await Promise.all([this.solana(), this.evm(), this.extras()]);
-    this.state = { ...sol, evm, extra };
+    const [sol, evm] = await Promise.all([this.solana(), this.evm()]);
+    this.state = { ...sol, evm };
     this.bus.emit('wallet.updated', this.state);
   }
 
-  /** Saldo waluty natywnej portfela (0 = główny) na danej sieci (null = nieznane). */
-  nativeBalance(chain: string, walletId: number = MAIN_WALLET_ID): number | null {
-    if (walletId !== MAIN_WALLET_ID) {
-      const x = this.state.extra.find((e) => e.id === walletId);
-      return x && x.chain === chain ? x.nativeBalance : null;
-    }
+  /** Saldo waluty natywnej portfela na danej sieci (null = nieznane). */
+  nativeBalance(chain: string): number | null {
     if (chain === SOLANA) return this.state.address ? this.state.solBalance : null;
     return this.state.evm?.chain === chain ? this.state.evm.nativeBalance : null;
   }

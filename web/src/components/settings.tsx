@@ -35,7 +35,7 @@ export function ScenarioPicker({ value, onChange }: { value: Scenario[]; onChang
   );
 }
 
-function FieldInput({ field, value, onChange }: { field: Field; value: unknown; onChange: (v: unknown) => void }) {
+export function FieldInput({ field, value, onChange }: { field: Field; value: unknown; onChange: (v: unknown) => void }) {
   switch (field.type) {
     case 'number':
       return (

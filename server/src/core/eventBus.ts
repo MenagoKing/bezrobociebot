@@ -2,7 +2,6 @@ import { EventEmitter } from 'node:events';
 import type {
   AppSettings,
   BotSnapshot,
-  Callout,
   Candle,
   ErrorEntry,
   FeedHealth,
@@ -29,7 +28,6 @@ export interface BusEvents {
   'trade.executed': { trade: Trade; position: Position; session: SessionRecord };
   'position.updated': Position;
   'stats.updated': SessionStats | null;
-  'callout.updated': Callout;
   'wallet.updated': WalletInfo;
   'system.health': HealthInfo;
   error: ErrorEntry;
@@ -91,7 +89,6 @@ const ALL_EVENTS: BusEventName[] = [
   'trade.executed',
   'position.updated',
   'stats.updated',
-  'callout.updated',
   'wallet.updated',
   'system.health',
   'error',

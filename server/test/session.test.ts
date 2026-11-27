@@ -25,7 +25,6 @@ async function waitFor(cond: () => boolean, ms = 8000): Promise<void> {
 }
 
 test('sesja paper: start, ręczne kupno i sprzedaż, spójna księga i statystyki, zatrzymanie', async () => {
-  ctx.callouts.init();
   await ctx.coordinator.init();
   // strategia nie powinna sama wchodzić w trakcie testu
   ctx.settings.update('trading', { entryScenarios: [], evaluationIntervalSeconds: 60 });
@@ -68,10 +67,6 @@ test('sesja paper: start, ręczne kupno i sprzedaż, spójna księga i statystyk
   assert.ok(Math.abs(stats.currentCapital.sol - (session.startCapitalSol + closed.realizedPnlSol! - t.paperAtaRentSol)) < 1e-12);
   assert.ok(stats.totalCosts.sol > 0);
 
-  // ogłoszenia wygenerowane z rzeczywistych transakcji, z etykietą AUTO
-  const callouts = ctx.repo.listCallouts();
-  assert.ok(callouts.length >= 2);
-  assert.ok(callouts.every((c) => c.body.includes(ctx.settings.get().callouts.autoLabel)));
 
   const ended = await ctx.coordinator.stop({ liquidate: true });
   assert.equal(ended.status, 'stopped');

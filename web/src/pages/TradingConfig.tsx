@@ -37,15 +37,9 @@ const TRADING_GROUPS: FieldGroup[] = [
     fields: [
       { key: 'entryScenarios', label: 'Kupuj tylko przy scenariuszach', type: 'scenarios', help: 'Pusta lista = strategia nie kupuje (tylko polecenia ręczne)' },
       { key: 'minConfidence', label: 'Min. pewność klasyfikacji', type: 'number', step: 0.05, min: 0, max: 1, help: '0–1' },
+      { key: 'minVolumeRatio', label: 'Min. wzrost wolumenu', type: 'number', unit: '×', step: 0.1, min: 0, help: '0 = wyłączone; 1.5 = wolumen o 50% wyższy niż wcześniej' },
+      { key: 'minBuySellRatio', label: 'Min. przewaga kupujących (5 min)', type: 'number', unit: '×', step: 0.1, min: 0, help: '0 = wyłączone; 1.3 = o 30% więcej kupna niż sprzedaży' },
       { key: 'maxOpenPositions', label: 'Maks. liczba otwartych pozycji', type: 'number', step: 1, min: 1 },
-      {
-        key: 'maxPositionsPerWallet',
-        label: 'Maks. pozycji na jeden portfel',
-        type: 'number',
-        step: 1,
-        min: 0,
-        help: '0 = bez limitu. 1 = każda pozycja z osobnego portfela (dodaj portfele w Konto i portfel → Portfele handlowe).',
-      },
       { key: 'minLiquidityUsd', label: 'Min. płynność tokena', type: 'number', unit: 'USD', step: 100 },
     ],
   },
@@ -61,7 +55,7 @@ const TRADING_GROUPS: FieldGroup[] = [
     fields: [
       { key: 'paperStartingCapitalUsd', label: 'Domyślny kapitał początkowy', type: 'number', unit: 'USD', step: 0.1 },
       { key: 'paperPlatformFeePct', label: 'Prowizja platformy', type: 'number', unit: '%', step: 0.05 },
-      { key: 'paperNetworkFeeSol', label: 'Opłata bazowa sieci (Solana)', type: 'number', unit: 'SOL', step: 0.000001, help: 'Dla sieci EVM: System → Sieci EVM' },
+      { key: 'paperNetworkFeeSol', label: 'Opłata bazowa sieci (Solana)', type: 'number', unit: 'SOL', step: 0.000001, help: 'Dla sieci EVM: Ustawienia → Sieci i połączenia' },
       { key: 'paperSlippagePct', label: 'Poślizg symulowany', type: 'number', unit: '%', step: 0.1 },
       { key: 'paperAtaRentSol', label: 'Rent konta tokena (Solana)', type: 'number', unit: 'SOL', step: 0.0001, help: 'Jednorazowo przy pierwszym zakupie; sieci EVM nie mają rentu' },
     ],
@@ -74,7 +68,7 @@ const RISK_GROUPS: FieldGroup[] = [
     fields: [
       { key: 'maxDeployedUsd', label: 'Maks. kapitał w pozycjach', type: 'number', unit: 'USD', step: 0.1 },
       { key: 'maxDeployedPctOfEquity', label: 'Maks. udział kapitału w pozycjach', type: 'number', unit: '%', step: 5 },
-      { key: 'solReserve', label: 'Rezerwa SOL na opłaty (Solana)', type: 'number', unit: 'SOL', step: 0.0005, help: 'Rezerwa dla sieci EVM: System → Sieci EVM' },
+      { key: 'solReserve', label: 'Rezerwa SOL na opłaty (Solana)', type: 'number', unit: 'SOL', step: 0.0005, help: 'Rezerwa dla sieci EVM: Ustawienia → Sieci i połączenia' },
     ],
   },
   {
@@ -135,16 +129,17 @@ function CostEstimator({ cfg }: { cfg: TC }) {
   );
 }
 
-export function TradingConfig() {
+/** Ustawienia → Strategia: kwoty, czasy, wejście/wyjście, wykonanie, symulacja + presety. */
+export function StrategySettings() {
   return (
     <>
-      <div>
-        <h1 className="page-title">Trading Configuration</h1>
-        <div className="page-sub">Parametry strategii i limity ryzyka. Zmiany działają od następnego cyklu decyzji — bez restartu.</div>
-      </div>
       <PresetBar kind="trading" />
       <SettingsForm section="trading" title="Strategia i wykonanie" groups={TRADING_GROUPS} aside={(draft) => <CostEstimator cfg={draft} />} />
-      <SettingsForm section="risk" title="Limity ryzyka" groups={RISK_GROUPS} />
     </>
   );
+}
+
+/** Ustawienia → Ryzyko: limity kapitału, strat, aktywności i zachowanie przy awariach. */
+export function RiskSettings() {
+  return <SettingsForm section="risk" title="Limity ryzyka" groups={RISK_GROUPS} />;
 }

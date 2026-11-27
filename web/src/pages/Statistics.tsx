@@ -115,10 +115,6 @@ export function Statistics() {
 
   return (
     <>
-      <div>
-        <h1 className="page-title">Statystyki finansowe</h1>
-        <div className="page-sub">Wyniki bieżącej sesji i historia zakończonych sesji — w SOL i USD.</div>
-      </div>
       {stats && session ? (
         <>
           <Panel title={`Bieżąca sesja #${session.id} — ${session.tokenSymbol}`} flush actions={<a className="btn btn-sm" href={`/api/sessions/${session.id}/export?format=json`}>Eksport raportu</a>}>

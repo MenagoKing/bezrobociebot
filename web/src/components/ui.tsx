@@ -2,6 +2,42 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BOT_STATE_LABELS, SCENARIO_LABELS, type BotState, type Scenario, type SessionStatus } from '../../../shared/types.ts';
 import { toast, useStore } from '../store.ts';
 
+/** Duży nagłówek strony z ikoną — ten sam wygląd co sekcje Ustawień. */
+export function PageHeader(props: { icon: ReactNode; title: string; desc: string }) {
+  return (
+    <header className="settings-head">
+      <span className="settings-head-ico">{props.icon}</span>
+      <div>
+        <h1 className="settings-title">{props.title}</h1>
+        <div className="page-sub">{props.desc}</div>
+      </div>
+    </header>
+  );
+}
+
+/** Ikony liniowe do nagłówków stron (1em, kolor z currentColor). */
+const svg = (children: ReactNode) => (
+  <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {children}
+  </svg>
+);
+export const PageIcons = {
+  user: svg(
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" />
+    </>,
+  ),
+  list: svg(
+    <>
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <circle cx="4" cy="6" r="1" fill="currentColor" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" />
+      <circle cx="4" cy="18" r="1" fill="currentColor" />
+    </>,
+  ),
+};
+
 export function Panel(props: { title?: ReactNode; actions?: ReactNode; children: ReactNode; flush?: boolean; className?: string }) {
   return (
     <section className={`panel ${props.className ?? ''}`}>

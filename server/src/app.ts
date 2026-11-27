@@ -15,11 +15,9 @@ import { OrderQueue } from './engine/orderQueue.ts';
 import { JupiterExecutor } from './execution/jupiterExecutor.ts';
 import { PaperExecutor } from './execution/paperExecutor.ts';
 import { MarketService } from './market/marketService.ts';
-import { AuthService } from './security/auth.ts';
 import { Vault } from './security/vault.ts';
 import { AccountService } from './services/accountService.ts';
 import { BackupService } from './services/backupService.ts';
-import { CalloutService } from './services/calloutService.ts';
 import { HealthMonitor } from './services/healthMonitor.ts';
 import { StatsService } from './services/statsService.ts';
 import { WalletMonitor } from './services/walletMonitor.ts';
@@ -40,8 +38,7 @@ export function createApp(opts: { dbFile?: string } = {}) {
 
   const settings = new SettingsService(repo, bus, (msg) => logger.warn(msg));
   const vault = Vault.load(env.masterKey, env.dataDir, (msg) => logger.warn(msg));
-  const auth = new AuthService(repo, env.sessionTtlHours);
-  const account = new AccountService(repo, vault, auth, settings, errors);
+  const account = new AccountService(repo, vault, settings, errors);
   const rpc = new SolanaRpc(() => account.rpcUrl());
   const chains = new ChainRegistry(settings);
   const evmClients = new EvmClients(chains);
@@ -50,8 +47,8 @@ export function createApp(opts: { dbFile?: string } = {}) {
   const ledger = new Ledger(repo);
 
   const paper = new PaperExecutor(market, settings, chains);
-  const live = new JupiterExecutor(rpc, settings, (walletId) => account.getKeypair(walletId));
-  const evmLive = new EvmExecutor({ registry: chains, clients: evmClients, settings, getAccount: (walletId) => account.getEvmAccount(walletId), lifiApiKey: () => account.lifiApiKey() });
+  const live = new JupiterExecutor(rpc, settings, () => account.getKeypair());
+  const evmLive = new EvmExecutor({ registry: chains, clients: evmClients, settings, getAccount: () => account.getEvmAccount(), lifiApiKey: () => account.lifiApiKey() });
   const queue = new OrderQueue({
     repo,
     bus,
@@ -80,21 +77,17 @@ export function createApp(opts: { dbFile?: string } = {}) {
     stats,
     errors,
     getBalanceSol: (s) => coordinator?.balanceSol(s) ?? null,
-    getWallets: (s) => coordinator?.walletBalances(s) ?? [],
   });
   coordinator = new Coordinator({ bus, repo, settings, market, queue, risk, engine, stats, errors, wallet, account, rpc, chains, evmClients });
-  const callouts = new CalloutService(repo, bus, settings, errors);
   const health = new HealthMonitor(bus, repo, market, dbFile);
   const backup = new BackupService(db, repo, settings, errors, env.dataDir);
 
-  return { env, db, repo, bus, errors, settings, vault, auth, account, rpc, chains, evmClients, market, stats, queue, risk, wallet, engine, coordinator, callouts, health, backup };
+  return { env, db, repo, bus, errors, settings, vault, account, rpc, chains, evmClients, market, stats, queue, risk, wallet, engine, coordinator, health, backup };
 }
 
 export type AppContext = ReturnType<typeof createApp>;
 
 export async function startServices(ctx: AppContext): Promise<void> {
-  await ctx.auth.bootstrap(env.adminPassword);
-  ctx.callouts.init();
   await ctx.coordinator.init();
   ctx.wallet.start();
   ctx.health.start();
@@ -102,7 +95,6 @@ export async function startServices(ctx: AppContext): Promise<void> {
   setInterval(() => {
     try {
       ctx.repo.pruneErrors();
-      ctx.repo.purgeExpiredAuthSessions();
     } catch (err) {
       logger.warn({ err: sanitize(errorMessage(err)) }, 'sprzątanie bazy nieudane');
     }

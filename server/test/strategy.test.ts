@@ -21,7 +21,7 @@ const analysis = (scenario: MarketAnalysis['scenario'], confidence = 0.8): Marke
 const snapshot: MarketSnapshot = { ts: now, priceUsd: 0.0001, priceSol: 0.0001 / 150, solUsd: 150, liquidityUsd: 50_000, volume5mUsd: 100, volume1hUsd: 1000, volume24hUsd: 10_000, buys5m: 5, sells5m: 3, priceChange5mPct: 0, priceChange1hPct: 0 };
 
 const position = (over: Partial<Position> = {}): Position => ({
-  id: 1, sessionId: 1, walletId: 0, status: 'open', openedAt: now - 120_000, closedAt: null, amount: 1000, decimals: 6,
+  id: 1, sessionId: 1, status: 'open', openedAt: now - 120_000, closedAt: null, amount: 1000, decimals: 6,
   entryPriceSol: 0.001, entryPriceUsd: 0.15, costSol: 1, peakPriceSol: 0.001, exitPriceSol: null, exitPriceUsd: null,
   proceedsSol: null, realizedPnlSol: null, realizedPnlUsd: null, feesSol: 0, exitReason: null, ...over,
 });
@@ -62,4 +62,21 @@ test('maszyna stanów odrzuca niedozwolone przejścia', () => {
   sm.transition('HOLDING', 'fill');
   assert.throws(() => sm.transition('OFFLINE', 'zły'), /Niedozwolone/);
   assert.deepEqual(seen, ['OFFLINE>IDLE', 'IDLE>WATCHING', 'WATCHING>AWAITING_TASK', 'AWAITING_TASK>BUYING', 'BUYING>HOLDING']);
+});
+
+test('filtry wolumenu: wzrost wolumenu i przewaga kupujących blokują albo dopuszczają wejście', () => {
+  const vcfg = { ...cfg, minVolumeRatio: 1.5, minBuySellRatio: 1.3 };
+  const withVol = (ratio: number): MarketAnalysis => ({ ...analysis('MODERATE_GROWTH'), metrics: { ...analysis('MODERATE_GROWTH').metrics, volumeRatio: ratio } });
+  assert.equal(evaluateEntry({ analysis: withVol(1.2), snapshot, openPositions: [], lastBuyAt: null, now, cfg: vcfg }).action, 'skip');
+  assert.equal(evaluateEntry({ analysis: withVol(2), snapshot: { ...snapshot, buys5m: 3, sells5m: 3 }, openPositions: [], lastBuyAt: null, now, cfg: vcfg }).action, 'skip');
+  assert.equal(evaluateEntry({ analysis: withVol(2), snapshot: { ...snapshot, buys5m: 0, sells5m: 0 }, openPositions: [], lastBuyAt: null, now, cfg: vcfg }).action, 'skip');
+  assert.equal(evaluateEntry({ analysis: withVol(2), snapshot: { ...snapshot, buys5m: 8, sells5m: 4 }, openPositions: [], lastBuyAt: null, now, cfg: vcfg, rng: () => 0.5 }).action, 'buy');
+  // domyślnie filtry wyłączone
+  assert.equal(evaluateEntry({ analysis: withVol(0.5), snapshot: { ...snapshot, buys5m: 1, sells5m: 9 }, openPositions: [], lastBuyAt: null, now, cfg, rng: () => 0.5 }).action, 'buy');
+});
+
+test('domyślne taktyki Playzone przechodzą walidację ustawień', async () => {
+  const { tacticsSchema, DEFAULT_SETTINGS: D } = await import('../src/config/schema.ts');
+  assert.equal(tacticsSchema.safeParse(D.tactics).success, true);
+  assert.equal(tacticsSchema.safeParse({ ...D.tactics, volume: { ...D.tactics.volume, minHoldSeconds: 600, maxHoldSeconds: 60 } }).success, false);
 });

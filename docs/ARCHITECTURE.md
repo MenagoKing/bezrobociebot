@@ -36,11 +36,11 @@ z trybem symulacji (paper) jako domyślnym i trybem live przez agregator Jupiter
 
 ```
                 ┌──────────────────────── Panel (React, przeglądarka admina) ───────────────────────┐
-                │ Overview · Session · Trading · Market · Callouts · Positions · Stats · Account · System │
+                │ Overview · Session · Trading · Market · Positions · Stats · Account · System           │
                 └───────────────▲ SSE (zdarzenia)                         │ REST (polecenia, konfiguracja)
                                 │                                         ▼
 ┌───────────────────────────────┴─────────────────────────────────────────────────────────────────┐
-│ API (Fastify): auth (cookie, scrypt), walidacja, statyczne pliki panelu                          │
+│ API (Fastify): tylko localhost (bez hasła), walidacja, statyczne pliki panelu                    │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ EventBus ◄──────────────────────────────── wszystkie moduły publikują / subskrybują ──────────► │
 │                                                                                                  │
@@ -51,7 +51,7 @@ z trybem symulacji (paper) jako domyślnym i trybem live przez agregator Jupiter
 │   │                                                                   ├─ PaperExecutor (symulacja)│
 │   │                                                                   └─ JupiterExecutor (live)   │
 │ MarketService ── Provider (DexScreener+Gecko | Simulated) ── CandleSeries ── Analyzer             │
-│ WalletMonitor (RPC)   CalloutService   StatsService   HealthMonitor   ErrorMonitor   Backup       │
+│ WalletMonitor (RPC)   StatsService   HealthMonitor   ErrorMonitor   Backup                        │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Repository ── SQLite (WAL)                Vault (AES-256-GCM, klucz główny poza bazą)             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -70,15 +70,14 @@ z trybem symulacji (paper) jako domyślnym i trybem live przez agregator Jupiter
 | `trades` | `id`, `session_id`, `position_id`, `side`, `ts`, `price_sol/usd`, `amount`, `value_sol/usd`, `fee_sol`, `network_fee_sol`, `sol_usd`, `tx_signature`, `mode`, `reason` |
 | `orders` | kolejka: `id`, `session_id`, `side`, `value_sol`, `position_id`, `reason`, `status` (`pending/executing/filled/failed/cancelled`), `attempts`, `next_attempt_at`, `error`, `tx_signature`, `trade_id` |
 | `equity_snapshots` | `session_id`, `ts`, `balance_sol`, `positions_value_sol`, `equity_sol`, `equity_usd`, `sol_usd` |
-| `callout_templates` | `id`, `name`, `category`, `event`, `body`, `enabled`, `weight` |
-| `callouts` | `id`, `template_id`, `session_id`, `trade_id`, `event`, `body`, `status` (`pending/approved/rejected`), `created_at`, `decided_at` |
+| `callout_templates`, `callouts` | nieużywane — zostały po usuniętym Callout Managerze (migracja 1 bez zmian) |
 | `errors` | `id`, `ts`, `level`, `source`, `message`, `context`, `acknowledged` |
-| `admin`, `auth_sessions` | hash hasła (scrypt), sesje (SHA-256 tokenu, wygaśnięcie) |
+| `admin`, `auth_sessions` | nieużywane — zostały po usuniętym logowaniu (migracja bez zmian) |
 
 ## 5. Komunikacja
 
 - **W procesie:** `EventBus` (typowane zdarzenia): `market.tick`, `market.analysis`, `market.feed`, `bot.state`,
-  `order.updated`, `trade.executed`, `position.updated`, `session.updated`, `risk.breach`, `callout.updated`,
+  `order.updated`, `trade.executed`, `position.updated`, `session.updated`, `risk.breach`,
   `wallet.updated`, `stats.updated`, `system.health`, `error`, `settings.updated`.
 - **Panel ← serwer:** SSE przekazuje wybrane zdarzenia (tick rynku dławiony do ~1/s).
 - **Panel → serwer:** REST z ciasteczkiem sesji (`HttpOnly`, `SameSite=Strict`) i nagłówkiem `X-Requested-With`.
@@ -103,9 +102,6 @@ Przejścia są zdefiniowane w tabeli (`server/src/engine/stateMachine.ts`); nied
 - **Cykl sesji:** walidacja → rozpoznanie tokena → zapis sesji z migawką konfiguracji → start feedu → start silnika.
 - **Ryzyko (przed każdym zakupem):** min/max kwota, saldo minus rezerwa SOL, maks. kapitał w pozycjach (USD i % kapitału),
   maks. liczba pozycji, cooldown, limit transakcji na sesję/godzinę, min. płynność.
-- **Wiele portfeli:** pozycje i zlecenia mają `wallet_id` (0 = główny portfel, >0 = `trading_wallets`). Przed zakupem
-  `RiskManager.checkBuyOnWallets` wybiera portfel z wolnym miejscem w limicie `maxPositionsPerWallet` (otwarte pozycje +
-  kupna w kolejce), najmniej zajęty najpierw, i sprawdza saldo tego portfela. Sprzedaż podpisuje klucz portfela pozycji.
 - **Ryzyko (ciągłe):** limit straty sesji (USD/%), limit kosztów → `pause` lub `stop + likwidacja` (konfigurowalne).
 - **Awaryjne zatrzymanie:** natychmiast blokuje nowe zakupy, anuluje kolejkę, opcjonalnie sprzedaje wszystko z pominięciem min. czasu trzymania.
 - **Odzyskiwanie:** po restarcie aktywna sesja wraca jako `paused`; zlecenia przerwane w trakcie są uzgadniane (live: status podpisu w RPC).
@@ -118,13 +114,13 @@ server/src/
   config/          env, schematy ustawień (zod) i wartości domyślne
   core/            eventBus, logger (redakcja), safeRun
   db/              połączenie, migracje, repozytorium
-  security/        vault (AES-GCM), hasła (scrypt), sesje admina
+  security/        vault (AES-GCM)
   market/          providery, świece, analizator, MarketService
   solana/          base58, RPC, podpis ed25519, transakcje
   execution/       PaperExecutor, JupiterExecutor
   engine/          maszyna stanów, strategia, kolejka zleceń, BotEngine
   coordinator/     Coordinator, RiskManager
-  services/        wallet, callouts, statystyki, health, backup
+  services/        wallet, statystyki, health, backup
   api/             serwer HTTP, SSE, trasy
 server/test/       testy (node:test)
 web/src/           panel React (pages/, components/)
