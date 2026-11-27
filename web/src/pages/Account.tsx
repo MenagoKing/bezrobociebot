@@ -8,7 +8,7 @@ import { addressUrl, chainName } from '../chains.ts';
 
 const PLATFORM_LABEL: Record<string, string> = { pumpfun: 'Pump.fun', gmgn: 'GMGN', fomo: 'FOMO', other: 'Inna' };
 const SECRET_LABEL: Record<string, [string, string]> = {
-  wallet_private_key: ['Klucz prywatny portfela', 'Wymagany tylko w trybie live. Base58 albo tablica JSON (eksport z Phantom / solana-keygen). Zmiana na inny portfel: „Zmień portfel” powyżej.'],
+  wallet_private_key: ['Klucz prywatny portfela', 'Wymagany tylko w trybie live. Klucz prywatny (87–88 znaków base58 albo tablica JSON — eksport z pump.fun / Phantoma / solana-keygen), nie adres portfela. Zmiana na inny portfel: „Zmień portfel” powyżej.'],
   rpc_url: ['Prywatny URL RPC Solany', 'Opcjonalny (np. z kluczem API dostawcy). Bez niego używany jest publiczny RPC z ustawień systemu.'],
   evm_private_key: ['Klucz prywatny portfela EVM', 'Wymagany tylko w trybie live na sieciach EVM (np. Robinhood Chain). 64 znaki hex — eksport z MetaMask/Rabby. Adres EVM ustawi się sam. Zmiana na inny portfel: „Zmień portfel” powyżej.'],
   lifi_api_key: ['Klucz API LI.FI', 'Opcjonalny — wyższe limity zapytań o wyceny swapów na sieciach EVM.'],
@@ -208,11 +208,21 @@ function ChangeWalletModal(props: {
             rows={3}
             autoComplete="off"
             spellCheck={false}
-            placeholder={kind === 'solana' ? 'Klucz prywatny Solana: base58 albo tablica JSON' : 'Klucz prywatny EVM: 64 znaki hex (z 0x lub bez)'}
+            placeholder={
+              kind === 'solana'
+                ? 'Klucz PRYWATNY Solana (87–88 znaków base58 albo tablica JSON) — nie adres portfela'
+                : 'Klucz PRYWATNY EVM: 64 znaki hex (z 0x lub bez) — nie adres 0x…'
+            }
             value={key}
             onChange={(e) => setKey(e.target.value)}
           />
-          <div className="small faint">Klucz wpisujesz tylko tutaj, w swoim panelu — jest szyfrowany na serwerze i nie trafia do logów. Nigdy nie wklejaj frazy odzyskiwania.</div>
+          <div className="small faint">
+            {kind === 'solana'
+              ? 'Na pump.fun: ustawienia konta → eksport klucza prywatnego (Export private key). Adres portfela (32–44 znaki) nie zadziała. '
+              : ''}
+            Klucz wpisujesz tylko tutaj, w swoim panelu — jest szyfrowany na serwerze i nie trafia do logów. Nigdy nie wklejaj frazy odzyskiwania.
+            Po zmianie porównaj nowy adres bota z adresem pokazywanym na pump.fun.
+          </div>
         </>
       )}
       {source === 'archive' && (
