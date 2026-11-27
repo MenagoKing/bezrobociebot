@@ -596,7 +596,7 @@ function TradingWalletsTable({ account, onChange }: { account: AccountInfo; onCh
   const [target, setTarget] = useState<{ wallet: TradingWallet; action: 'reveal' | 'delete' | 'rename' } | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [rename, setRename] = useState('');
-  const list = account.tradingWallets.filter((w) => w.kind === 'solana');
+  const list = (account.tradingWallets ?? []).filter((w) => w.kind === 'solana');
   const lockTitle = liveActive ? 'Najpierw zakończ sesję live' : undefined;
 
   const closeAdd = () => {

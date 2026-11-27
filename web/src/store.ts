@@ -149,7 +149,7 @@ export function applyEvent(ev: StreamEvent): void {
     case 'stats.updated':
       return set({ stats: ev.stats });
     case 'wallet.updated':
-      return set({ wallet: ev.wallet });
+      return set({ wallet: { ...ev.wallet, extra: ev.wallet.extra ?? [] } });
     case 'system.health':
       return set({ health: ev.health });
     case 'error':
@@ -168,6 +168,9 @@ export async function loadState(): Promise<void> {
   const snap = await api.get<AppStateSnapshot & { meta: Meta }>('/api/state');
   set((s) => ({
     ...snap,
+    // starszy serwer (sprzed portfeli handlowych) nie wysyła `extra` — panel nie może się na tym wywrócić
+    wallet: { ...snap.wallet, extra: snap.wallet?.extra ?? [] },
+    settings: { ...snap.settings, trading: { ...snap.settings.trading, maxPositionsPerWallet: snap.settings.trading.maxPositionsPerWallet ?? 0 } },
     loaded: true,
     // serwer ma nowszą wersję panelu niż ta załadowana w karcie (np. po aktualizacji i restarcie)
     updateAvailable: s.updateAvailable || (!!s.meta.buildId && !!snap.meta.buildId && s.meta.buildId !== snap.meta.buildId),
