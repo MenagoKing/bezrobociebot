@@ -470,7 +470,7 @@ function TradingWallets({ account, onChange }: { account: AccountInfo; onChange:
     setPassword('');
     setRevealed(null);
   };
-  const list = account.tradingWallets;
+  const list = account.tradingWallets ?? [];
   const lockTitle = liveActive ? 'Najpierw zakończ sesję live' : undefined;
   const mainCount = (account.walletAddress ? 1 : 0) + (account.evmWalletAddress ? 1 : 0);
 
