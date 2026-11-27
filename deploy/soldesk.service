@@ -1,0 +1,28 @@
+# Instalacja bez Dockera (Linux, Node.js >= 24):
+#   sudo useradd -r -s /usr/sbin/nologin soldesk
+#   sudo cp -r . /opt/soldesk && cd /opt/soldesk && npm ci && npm run build
+#   sudo chown -R soldesk:soldesk /opt/soldesk/data
+#   sudo cp deploy/soldesk.service /etc/systemd/system/ && sudo systemctl enable --now soldesk
+[Unit]
+Description=SolDesk trading control panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=soldesk
+WorkingDirectory=/opt/soldesk
+EnvironmentFile=/opt/soldesk/.env
+ExecStart=/usr/bin/node server/src/index.ts
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/soldesk/data
+MemoryMax=768M
+
+[Install]
+WantedBy=multi-user.target

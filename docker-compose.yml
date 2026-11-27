@@ -1,0 +1,31 @@
+services:
+  soldesk:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      TRUST_PROXY: "true"
+      COOKIE_SECURE: "true"
+    volumes:
+      - ./data:/data
+    expose:
+      - "8787"
+    stop_grace_period: 15s
+
+  # HTTPS z automatycznym certyfikatem. Ustaw domenę w deploy/Caddyfile.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - soldesk
+
+volumes:
+  caddy_data:

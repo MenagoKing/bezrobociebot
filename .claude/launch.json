@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "soldesk",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/src/index.ts"],
+      "port": 8787
+    }
+  ]
+}

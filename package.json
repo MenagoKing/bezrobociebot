@@ -1,0 +1,24 @@
+{
+  "name": "soldesk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SolDesk - panel do zarządzania własnym botem handlowym na Solanie (paper / live)",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w web",
+    "start": "node server/src/index.ts",
+    "test": "node --test \"server/test/*.test.ts\"",
+    "typecheck": "tsc -p server/tsconfig.json && tsc -p web/tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,8 @@
+# Zamień na swoją domenę (rekord DNS A → IP serwera). Caddy sam uzyska certyfikat TLS.
+panel.example.com {
+	encode zstd gzip
+	reverse_proxy soldesk:8787
+	# Opcjonalnie: dostęp tylko z Twojego IP
+	# @blocked not remote_ip 203.0.113.10
+	# respond @blocked 403
+}
