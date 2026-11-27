@@ -49,6 +49,9 @@ test('zmiana portfela Solana: archiwum starego klucza, powrót z archiwum', asyn
 
   await assert.rejects(ctx.account.changeWallet({ kind: 'solana', source: 'archive', archiveId: 9999 }), /archiwum/);
   await assert.rejects(ctx.account.changeWallet({ kind: 'solana', source: 'import', privateKey: 'nie-klucz' }), /Nieprawidłowy klucz Solana/);
+  // adres (np. skopiowany z pump.fun) zamiast klucza prywatnego — odrzucony, portfel bez zmian
+  await assert.rejects(ctx.account.changeWallet({ kind: 'solana', source: 'import', privateKey: changed.address }), /adres portfela/);
+  assert.equal(ctx.account.get().walletAddress, first);
 
   await ctx.account.deleteArchived(after[0]!.id);
   assert.equal(ctx.account.get().archivedWallets.length, 0);

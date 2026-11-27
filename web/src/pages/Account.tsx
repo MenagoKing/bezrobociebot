@@ -304,11 +304,14 @@ function NewBotModal({ account, onDone, onClose }: { account: AccountInfo; onDon
             rows={3}
             autoComplete="off"
             spellCheck={false}
-            placeholder="Klucz prywatny Solana: base58 albo tablica JSON (eksport z Phantoma)"
+            placeholder="Klucz PRYWATNY Solana (87–88 znaków base58 albo tablica JSON) — nie adres portfela"
             value={key}
             onChange={(e) => setKey(e.target.value)}
           />
-          <div className="small faint">Nigdy nie wklejaj frazy odzyskiwania (12/24 słowa) — tylko klucz prywatny portfela.</div>
+          <div className="small faint">
+            Na pump.fun: ustawienia konta → eksport klucza prywatnego (Export private key). Adres portfela (32–44 znaki) nie zadziała. Nigdy nie wklejaj frazy odzyskiwania (12/24 słowa).
+            Po dodaniu porównaj adres bota z adresem pokazywanym na pump.fun.
+          </div>
         </>
       )}
       {hasActive && (

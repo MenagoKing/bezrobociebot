@@ -39,6 +39,12 @@ test('keypair: format base58 i JSON, wykrywanie uszkodzonego klucza', () => {
   assert.throws(() => keypairFromSecret(broken), /uszkodzony/);
 });
 
+test('keypair: adres portfela (32 B) wklejony zamiast klucza prywatnego jest odrzucany', () => {
+  assert.throws(() => parseSecretKey('So11111111111111111111111111111111111111112'), /adres portfela/);
+  assert.throws(() => parseSecretKey(base58Encode(newSolanaSecret().subarray(32))), /adres portfela/);
+  assert.throws(() => parseSecretKey(JSON.stringify([...randomBytes(48)])), /64 bajty/);
+});
+
 test('podpis transakcji: poprawny podpis ed25519 w slocie płatnika; cudza transakcja odrzucona', () => {
   const kp = keypairFromSecret(newSolanaSecret());
   const other = randomBytes(32);

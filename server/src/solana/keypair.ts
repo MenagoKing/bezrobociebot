@@ -10,7 +10,11 @@ export interface SolanaKeypair {
   sign(message: Uint8Array): Uint8Array;
 }
 
-/** Akceptuje klucz w formacie base58 (64 B lub 32 B ziarna) albo tablicę JSON (Phantom/solana-keygen). */
+/**
+ * Klucz prywatny wpisany przez użytkownika: base58 albo tablica JSON (Phantom, pump.fun, solana-keygen) — zawsze 64 bajty
+ * (ziarno + klucz publiczny, sprawdzane w keypairFromSecret). 32 bajty są odrzucane: tyle samo ma adres portfela, więc
+ * wklejony omyłkowo adres zostałby potraktowany jak ziarno i dałby obcy portfel, którego klucz każdy może wyliczyć.
+ */
 export function parseSecretKey(input: string): Uint8Array {
   const text = input.trim();
   let bytes: Uint8Array;
@@ -23,9 +27,12 @@ export function parseSecretKey(input: string): Uint8Array {
   } else {
     bytes = base58Decode(text);
   }
-  if (bytes.length !== 64 && bytes.length !== 32) {
-    throw new Error('Klucz prywatny musi mieć 64 bajty (lub 32 bajty ziarna)');
+  if (bytes.length === 32) {
+    throw new Error(
+      'to jest adres portfela (klucz publiczny), a nie klucz prywatny. Klucz prywatny Solany ma 87–88 znaków — wyeksportuj go z pump.fun lub Phantoma',
+    );
   }
+  if (bytes.length !== 64) throw new Error('klucz prywatny Solany musi mieć 64 bajty (87–88 znaków base58 albo tablica JSON z 64 liczbami)');
   return bytes;
 }
 
